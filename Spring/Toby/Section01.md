@@ -22,7 +22,7 @@ Spring 자체를 확장하고 있는 프레임워크, 혹은 라이브러리
 Spring Web Application은 컨테이너 안에 배포하고 동작하는 방식  
 문제는 이걸 위해 알아야할 기본지식이 너무 많음
 
-[대두된 Github Issue](https://github.com/spring-projects/spring-framework/issues/14521)  
+[대두된 Github Issue]  
 2012년 Containerless한 Spring을 원하는 사용자
 
 2013년 Spring 를 수정하지 않고 Spring Boot 라는 새로운 프로젝트를 개발
@@ -96,3 +96,6 @@ Spring은 IoC 컨테이너
 * 적용 가능한 설정 항목을 파악할 수 있다
 * 직접 만든 빈 구성 정보를 적용하고, 그에 따른 변화를 분석할 수 있다
 * 스프링 부트의 기술을 꼼꼼히 살펴볼 수 있다
+
+<!-- 링크 -->
+[대두된 Github Issue]: https://github.com/spring-projects/spring-framework/issues/14521
