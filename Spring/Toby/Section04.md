@@ -80,6 +80,57 @@ WebServer webServer = serverFactory.getWebServer(servletContext -> {
 
 ## 의존 오브젝트 추가
 
+위 방법은 FrontController가 직접 HelloController를 생성해서 사용하는 방식과 크게 다르지 않음. 다만 스프링의 기본 구조를 짜놨다는점을 주목  
+스프링 컨테이너는 기본적으로 안에 어떤 타입의 오브젝트를 만들때 한번만 생성함. (이게 스프링에서 자주나오는 싱글톤)  
+getBean을 호출할때마다 새로 오브젝트를 생성해서 전달하는게 아니라 한 번만 생성해둔 다음 생성해둔 오브젝트를 getBean 호출때마다 전달함(재사용)
+그래서 스프링 컨테이너를 싱글톤 레지스트리라고도 함
+
+컨트롤러는 기본적으로 웹 컨트롤러이기 때문에 웹을 통해서 들어온 요청사항을 한번 검증하고  
+비즈니스 로직을 제공해주는 다른 오브젝트한테 요청을 보내서 결과를 받은 다음 웹 클라이언트에게 어떤 형식으로 돌려줄 것인가를 결정하는 역할만 하면 됨
+
+비즈니스 로직을 처리할 SimpleHelloService를 추가
+```java
+public class SimpleHelloService {
+
+    public String sayHello(String name) {
+        return "Hello, " + name + "!";
+    }
+}
+```
+
+SimpleHelloService를 추가하며 HelloController는 SimpleHelloService에 요청을 보내서 처리하도록 수정
+```java
+public class HelloController {
+
+    public String hello(String name) {
+        SimpleHelloService service = new SimpleHelloService();
+        
+        return service.sayHello(name);
+    }
+}
+```
+
+Controller는 웹 요청을 검증하는 역할을 하기 때문에 name이 잘못들어왔는지 검증하는 로직을 추가
+```java
+return service.sayHello(Objects.requireNonNull(name));
+```
+- `Objects.requireNonNull()`는 전달받은 파라미터가 null일 경우 NPE를 throw
+
+서버를 실행하고 응답이 기대한 대로 들어왔는지 확인
+```bash
+$ http -v GET ":8080/hello?name=Spring"
+
+HTTP/1.1 200 
+Connection: keep-alive
+Content-Length: 15
+Content-Type: text/plain;charset=ISO-8859-1
+Date: Thu, 20 Jun 2024 11:24:44 GMT
+Keep-Alive: timeout=60
+
+Hello, Spring!
+```
+
+
 ## Dependency Injection
 
 ## 의존 오브젝트 DI 적용
