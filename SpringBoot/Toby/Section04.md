@@ -130,10 +130,108 @@ Keep-Alive: timeout=60
 Hello, Spring!
 ```
 
-
 ## Dependency Injection
 
+스프링 컨테이너를 얘기할 때 Spring IoC/DI Container 혹은 스프링 DI 컨테이너라고도 얘기함
+
+앞서 만든 HelloController와 SimpleHelloService는 의존관계가 성립되어 있음  
+SimpleHelloService의 변경이 HelloController에 영향을 줌 (HelloController가 SimpleHelloService에 의존하고 있음)
+
+이게 어떤 문제가 되는지?  
+ComplexHelloService를 SimpleHelloService 대신 사용하고 싶을 경우, HelloController의 코드를 수정해야 함  
+변경이 발생할 때마다 코드를 수정하고, 배포를 다시 해야함
+
+이런 문제를 어떻게 해결하는지?  
+Java에서 많이 쓰이는 소프트웨어 원칙이 있음  
+HelloController는 특정 메소드를 가지고 있는 HelloService라는 인터페이스에만 의존하도록 만드는 것  
+그리고 인터페이스를 구현한 SimpleHelloService, ComplexHelloService를 생성  
+이렇게 진행한다면, HelloController가 특정 클래스에 의존하지 않으므로 인터페이스를 구현한 클래스를 아무리 많이 만들어도 HelloController의 코드를 수정하지 않을 수 있음
+
+이게 끝은 아님  
+소스코드 레벨에서는 의존하고 있지 않더라도 실제 런타임 레벨에서는 어떤 오브젝트를 사용할지 결정되어있어야 함  
+호출할 때 어느 클래스로 만든 오브젝트의 메소드를 이용하는 것인지 알수가 없음. 그래서 연관관계를 만들어줘야 함  
+이게 바로 Dependency Injection
+
+DI에는 어셈블러 Assembler라는 제 3의 존재가 필요함  
+어떤 클래스의 오브젝트를 사용할지 결정했다면, 누군가가 이게 가능하게 만들어줘야 함  
+오브젝트를 new 키워드로 만드는 대신에 외부에서 오브젝트를 만들어서 HelloController가 사용할 수 있도록 주입해주는게 어셈블러  
+이 어셈블러를 우리는 스프링 컨테이너라고 부름
+
+주입해주는 방식은 여러 개가 있음  
+1. HelloController를 생성할 때, 생성자로 특정 클래스로 주입해주는 방식
+2. Factory Method로 Bean을 만들도록 하면서 파라미터로 넘기는 방식
+3. HelloController에 Property를 정의해서 Setter Method를 통해 사용해야될 클래스를 주입해주는 방식
+
+이게 스프링 컨테이너를 사용해야 하는 가장 중요한 이유
+
 ## 의존 오브젝트 DI 적용
+
+기존 코드는 HelloController가 SimpleHelloService의 오브젝트를 직접 생성해서 사용하는 방식  
+이를 스프링 Bean으로 등록하고 스프링 컨테이너가 어셈블러로서 DI하는 작업까지 수행
+
+인터페이스를 생성하고 인터페이스를 구현한 클래스에서 메소드를 정의하는 방식으로 수정  
+이는 리팩토링 기능을 이용하면 편리 (우클릭 > Refactor > Extract Interface)
+
+```java
+public interface HelloService {
+    String sayHello(String name);
+}
+
+public class SimpleHelloService implements HelloService {
+    @Override
+    public String sayHello(String name) {
+        return "Hello, " + name + "!";
+    }
+}
+```
+
+HelloController 수정
+
+```java
+public class HelloController {
+    private final HelloService service;
+
+    public HelloController(HelloService service) {
+        this.service = service;
+    }
+
+    public String hello(String name) {
+
+        return service.sayHello(Objects.requireNonNull(name));
+    }
+}
+```
+- 오브젝트 생성 제거
+  - DI 주입받을 변수 선언 및 생성자로 주입
+
+Application.java 수정
+
+```java
+GenericApplicationContext context = new GenericApplicationContext();
+context.registerBean(HelloController.class);
+context.registerBean(SimpleHelloService.class);
+context.refresh();
+```
+- SimpleHelloService Bean 등록
+  - 스프링이 구성정보를 만들때는 정확이 어떤 클래스로 구성정보를 만들지 지정해줘야 하기 때문에 인터페이스(HelloService)는 불가능
+
+HelloController의 생성자에서 HelloService 인터페이스가 필요하므로,  
+DI가 진행될 때는 스프링 컨테이너가 Bean으로 등록된 클래스들 중 해당 인터페이스를 구현할 클래스를 찾아서 주입해줌
+
+서버를 실행시키고 요청을 보내서 응답 확인
+
+```bash
+$ http -v GET ":8080/hello?name=Spring"
+
+HTTP/1.1 200 
+Connection: keep-alive
+Content-Length: 15
+Content-Type: text/plain;charset=ISO-8859-1
+Date: Sun, 23 Jun 2024 09:06:29 GMT
+Keep-Alive: timeout=60
+
+Hello, Spring!
+```
 
 ## DispatcherServlet으로 전환
 
