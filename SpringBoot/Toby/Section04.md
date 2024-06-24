@@ -235,11 +235,254 @@ Hello, Spring!
 
 ## DispatcherServlet으로 전환
 
+애플리케이션의 로직과 긴말한 연관이 있는게 서블릿 코드 안에 등장함  
+- 매핑: 웹 요청을 가지고 처리해줄 컨트롤러를 찾는 작업
+  - uri, method로 어떤 컨트롤러에게 전달할지 판단하는 부분
+- 바인딩: DTO에 여러 파라미터를 넣어주는 작업
+
+이러한 부분은 스프링을 이용해서 다른 전략으로 변경 -> DispatcherServlet
+
+```java
+// GenericApplicationContenxt context = new GenericApplicationContext();
+GenericWebApplicationContext context = new GenericWebApplicationContext();
+
+WebServer webServer = serverFactory.getWebServer(servletContext -> {
+    servletContext.addServlet("dispatcherServlet", new DispatcherServlet(context))
+        .addMapping("/*");
+});
+```
+- applicationContext를 DispatcherServlet 생성자에 전달
+  - 스프링 컨테이너와 커뮤니케이션하는 방법 (작업을 위임할 오브젝트를 찾아야 하는데 그 때 사용할 컨테이너 전달)
+- 다만, 웹 요청을 처리하기 위해서는 GenericWebApplicationContext 타입을 사용해야 함
+
+이제 다시 서버를 실행시키고 요청을 보내서 응답 확인
+
+```bash
+$ http -v GET ":8080/hello?name=Spring"
+
+HTTP/1.1 404 
+Connection: keep-alive
+Content-Language: en
+Content-Length: 732
+Content-Type: text/html;charset=utf-8
+Date: Mon, 24 Jun 2024 12:49:38 GMT
+Keep-Alive: timeout=60
+```
+
+DispatcherServlet한테 어떤 웹 요청을 어떤 오브젝트에게 전달해야할지 정보를 전달하지 않았기에 404 발생  
+정보를 전달하는 방법으로 여러 방법이 있으나, 가장 각광받은 방법은 매핑 정보를 요청을 처리할 컨트롤러 클래스 안에다가 집어넣는 방법
+
 ## Annotation 매핑 정보 사용
+
+컨트롤러 클래스에 매핑 정보를 집어넣는 방법 (어노테이션 활용)
+
+```java
+@GetMapping("/hello")
+public String hello(String name) {
+    return service.sayHello(Objects.requireNonNull(name));
+}
+```
+- HttpMethod GET으로 들어오는 것 중에서 URL이 /hello로 된 것을 해당 컨트롤러 메소드가 처리
+  - 과거에는 `@RequestMapping(method = RequestMethod.GET, value = "/hello")`와 같이 사용
+- `@RestController`는 DispatcherServlet 하고는 직접 관련이 없어서 현재는 사용하지 않아도 됨
+
+앞서 애플리케이션 컨텍스트를 생성자로 받은 디스패처 서블릿(서블릿 컨테이너)는 Bean을 모두 탐색함  
+그 중 매핑 정보를 가진 클래스를 찾아서 그 안의 요청 정보를 추출함  
+그 후 매핑에 사용할 매핑 테이블을 만들고, 웹 요청이 들어오면 그걸 참고해서 담당할 Bean 오브젝트와 메소드를 확인
+
+사실 이렇게만 작성하면 디스패처 서블릿이 메소드 레벨까지는 다 찾지 못함  
+그래서 클래스 단에 `@RequestMapping`을 추가해야 함
+
+```java
+@RequestMapping("/toby")
+public class HelloController {
+    // ...
+}
+```
+
+클래스 단에서 사용하는 `@RequestMapping`에도 URI을 추가할 수 있음. 여기 선언된 URI와 메소드단의 URI가 합쳐진게 최종 URI가 됨  
+위 경우에는 `/toby/hello`가 최종 URI
+
+여기까지 진행 후 다시 서버를 재가동하고 요청 보내서 응답 확인
+
+```bash
+$ http -v GET ":8080/toby/hello?name=Spring"
+
+HTTP/1.1 404 
+Connection: keep-alive
+Content-Language: en
+Content-Length: 732
+Content-Type: text/html;charset=utf-8
+Date: Mon, 24 Jun 2024 13:02:36 GMT
+Keep-Alive: timeout=60
+
+```
+
+응답이 제대로 나오지 않음  
+이건 현재 Controller에서 String으로 응답하고 있는데, 여기서 스프링의 기본동작과 연관 있음  
+디스패처 서블릿은 String을 return하면 가장 기본이 되는 동작이 View라고 불리는 HTML 템플릿을 찾아서 응답하는 것  
+그래서 해당 반환값 String이라는 이름의 View가 있는지 체크하는데 없으니 404 발생
+
+String을 웹 응답의 Body에 넣어서 전달하게 하는 방식은 어노테이션을 하나 추가해야 함
+
+```java
+@GetMapping("/hello")
+@ResponseBody
+public String hello(String name) {
+    return service.sayHello(Objects.requireNonNull(name));
+}
+```
+
+추가한 다음 서버를 재가동하고 요청을 보내서 응답 확인
+
+```bash
+$ http -v GET ":8080/toby/hello?name=Spring"
+
+HTTP/1.1 200 
+Connection: keep-alive
+Content-Length: 14
+Content-Type: text/plain;charset=ISO-8859-1
+Date: Mon, 24 Jun 2024 13:15:08 GMT
+Keep-Alive: timeout=60
+
+Hello, Spring!
+```
+
+초기에는 `@ResponseBody`를 사용하지 않아도 제대로 응답이 나왔었는데,  
+그 이유는 클래스단에 `@RestController`이 선언되면 해당 클래스 내의 메소드들은 `@ResponseBody`가 없어도 붙어있다고 가정함
+
+다만 여기서 발생하는 스프링 부트 버전 문제가 발생  
+스프링 부트 2.7 버전에서는 위 코드대로 해도 문제가 없었으나, 3 버전으로 업데이트 되며 @Controller가 클래스단에 추가적으로 존재해야 정상 동작
+
+```java
+@Controller
+@RequestMapping("/toby")
+public class HelloController {
+    // ...
+}
+```
 
 ## 스프링 컨테이너로 통합
 
+서블릿 컨테이너를 만들고 서블릿을 초기화하는 등의 작업을 스프링 컨테이너가 초기화되는 과정중에 일어나도록 변경  
+스프링 부트가 그렇게 동작하고 있음
+
+스프링 컨테이너의 초기화 작업은 refresh()에서 진행  
+해당 메소드 내부 구현 코드를 살펴보면 템플릿 메소드로 만들어져 있다는 것을 알 수 있음
+
+템플릿 메소드 패턴을 사용하면 그 안에 여러 개의 Hook 메소드를 주입해 넣기도 함  
+템플릿 메소드 안에서 일정한 순서에 의해서 작업들이 호출되는데 그 중 서브 클래스에서 확장하는 방법을 통해  
+특정 시점에 어떤 작업을 수행하게 해서 기능을 유연하게 확장하도록 만드는 기법  
+그 Hook 메소드 이름이 onRefresh()
+
+템플릿 메소드 패턴은 상속을 통해서 기능을 확장하도록 만드니까 GenericWebApplicationContext를 상속하는 클래스를 생성  
+다만, 클래스를 따로 정의하기는 번거로우니 간단하게 익명 클래스를 사용
+
+```java
+GenericWebApplicationContext context = new GenericWebApplicationContext() {
+    @Override
+    protected void onRefresh() {
+        super.onRefresh();
+
+        TomcatServletWebServerFactory serverFactory = new TomcatServletWebServerFactory();
+        WebServer webServer = serverFactory.getWebServer(servletContext -> {
+            servletContext.addServlet("dispatcherServlet", new DispatcherServlet(this))
+                .addMapping("/*");
+        });
+        webServer.start();
+    }
+};
+```
+- 부모 클래스의 `onRefresh()`를 호출하는 것을 빼먹으면 안됨
+  - 부모 클래스에서도 해당 메소드를 확장해서 추가작업을 진행하기 때문
+- `onRefresh()` 안으로 서블릿 초기화하는 작업 코드 이동
+  - 다만 context 자체가 변수가 아니라 메소드를 선언하는 해당 클래스이므로 `this` 사용
+
+변경한 다음 서버를 재가동하고 요청을 보내서 응답 확인
+
+```bash
+$ http -v GET ":8080/toby/hello?name=Spring"
+
+HTTP/1.1 200 
+Connection: keep-alive
+Content-Length: 14
+Content-Type: text/plain;charset=ISO-8859-1
+Date: Mon, 24 Jun 2024 13:29:07 GMT
+Keep-Alive: timeout=60
+
+Hello, Spring!
+```
+
 ## 자바코드 구성 정보 사용
+
+스프링 컨테이너가 사용하는 구성 정보를 어떻게 오브젝트로 만들어서 컨테이너 내에 컴포넌트로 등록해두고  
+스프링 컨테이너 안에 Bean 오브젝트가 다른 오브젝트에 의존하고 있다면 관계를 어떻게 맺어줄 것인가, 어느 시점에 오브젝트를 주입할 것인가 등등  
+이런 정보들을 스프링 컨테이너에 구성 정보로 제공해줘야 함
+
+과거에는 외부 설정파일을 사용했었음. 이번에는 Factory Method 이용
+
+일반적으로는 이런 방식을 사용하지 않음. 필요할 때만 사용  
+Bean 오브젝트를 만들고 초기화하는 작업이 복잡할 때 복잡한 설정 정보로 나열하는 대신에 자바 코드로 만들면 간결하고 이해하기 쉬움
+
+```java
+@Configuration
+public class TobyApplication {
+    @Bean
+    public HelloController helloController(HelloService service) {
+        return new HelloController(service);
+    }
+    
+    @Bean
+    public HelloService helloService() {
+        return new SimpleHelloService();
+    }
+
+    public static void main(String[] args) {
+        AnnotationConfigWebApplicationContext context = new AnnotationConfigWebApplicationContext() {
+            @Override
+            protected void onRefresh() {
+                super.onRefresh();
+
+                TomcatServletWebServerFactory serverFactory = new TomcatServletWebServerFactory();
+                WebServer webServer = serverFactory.getWebServer(servletContext -> {
+                    servletContext.addServlet("dispatcherServlet", new DispatcherServlet(this))
+                        .addMapping("/*");
+                });
+                webServer.start();
+            }
+        };
+        context.register(TobyApplication.class);
+        context.refresh();
+    }
+}
+```
+- HelloController를 생성할 때는 HelloService가 필요함
+  - 스프링 컨테이너한테 의존 오브젝트를 파라미터로 넘겨달라고 선언
+- HelloService 타입으로 return
+  - SimpleHelloService 타입을 return 하지 않고 Bean을 주입받을때 어떤 타입을 기대하는가를 생각하고 결정
+- @Bean
+  - 스프링 컨테이너가 Bean 오브젝트로 사용되는 그 오브젝트를 생성하는 Factory method임을 전달하는 어노테이션
+- @Configuration
+  - 스프링 컨테이너가 제대로 인지할 수 있도록 클래스 단에 선언하는 어노테이션
+- AnnotationConfigWebApplicationContext 로 스프링 컨테이너 변경
+  - GenericWebApplicationContext는 자바 코드로 만든 Configuration 정보를 읽을 수 없음
+  - registerBean()을 더 이상 지원하지 않음
+  - register()로 자바 코드로 된 구성 정보를 가지고 있는 클래스를 등록해줘야함
+
+변경후 정상적으로 동작하는지 서버를 재가동하고 요청을 보내서 응답을 확인
+
+```bash
+$ http -v GET ":8080/toby/hello?name=Spring"
+
+HTTP/1.1 200 
+Connection: keep-alive
+Content-Length: 14
+Content-Type: text/plain;charset=ISO-8859-1
+Date: Mon, 24 Jun 2024 13:42:14 GMT
+Keep-Alive: timeout=60
+
+Hello, Spring!
+```
 
 ## @Component 스캔
 
