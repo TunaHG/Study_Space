@@ -351,8 +351,8 @@ Hello, Spring!
 초기에는 `@ResponseBody`를 사용하지 않아도 제대로 응답이 나왔었는데,  
 그 이유는 클래스단에 `@RestController`이 선언되면 해당 클래스 내의 메소드들은 `@ResponseBody`가 없어도 붙어있다고 가정함
 
-다만 여기서 발생하는 스프링 부트 버전 문제가 발생  
-스프링 부트 2.7 버전에서는 위 코드대로 해도 문제가 없었으나, 3 버전으로 업데이트 되며 @Controller가 클래스단에 추가적으로 존재해야 정상 동작
+> 다만 여기서 발생하는 스프링 부트 버전 문제가 발생  
+> 스프링 부트 2.7 버전에서는 위 코드대로 해도 문제가 없었으나, 3 버전으로 업데이트 되며 @Controller가 클래스단에 추가적으로 존재해야 정상 동작
 
 ```java
 @Controller
@@ -486,6 +486,373 @@ Hello, Spring!
 
 ## @Component 스캔
 
+좀 더 간결한 방법으로 Bean을 등록
+
+스프링 컨테이너에 있는 컴포넌트 스캐너가 있음.  
+`@Component`가 붙은 모든 클래스를 찾아서 Bean으로 등록해줌
+
+```java
+@RequestMapping("/toby")
+@Component
+public class HelloController {
+    // ...
+}
+
+@Component
+public class SimpleHelloService implements HelloService {
+    // ...
+}
+
+@Configuration
+@ComponentScan
+public class TobyApplication {
+    // ...
+}
+```
+
+HelloController, SimpleHelloService에 `@Component`
+
+`@Configuration`이 붙은 애플리케이션 컨텍스트에 레지스터하는 첫 번째 클래스에  
+`@ComponentScan`를 추가하여 컨테이너에게 전달
+
+해당 클래스가 있는 패키지부터 시작해서 하위 패키지를 뒤져서 `@Component`가 붙은 모든 클래스를 Bean으로 등록  
+Bean으로 등록할 때 필요하다면 의존 오브젝트를 찾아내고 그걸 생성자를 호출할 때 파라미터로 넘겨주기도 함
+
+새로운 Bean을 만들어서 추가할 때 구성 정보를 다시 등록해 줄 필요 없이 간단하게 `@Component`만 붙여주면 됨
+
+항상 좋은것만은 아님  
+많은 Bean이 등록되면 애플리케이션을 실행했을 때 어떤 것들이 등록되는가를 찾아보기 힘들 수 있음  
+하지만 패키지 구성을 잘하고 모듈을 잘 나눠서 개발하면 어렵지 않게 파악 가능 
+
+동작을 확인해보기 위해 서버를 재가동하고 요청을 보내서 응답 확인
+
+```bash
+$ http -v GET ":8080/toby/hello?name=Spring"
+
+HTTP/1.1 200 
+Connection: keep-alive
+Content-Length: 14
+Content-Type: text/plain;charset=ISO-8859-1
+Date: Fri, 28 Jun 2024 08:24:27 GMT
+Keep-Alive: timeout=60
+
+Hello, Spring!
+```
+
+> 앞서 발생한 버전 관련 문제와 연속되어,  
+> 3 버전에서는 @Controller를 선언해줘야 동작했음. 근데 이 @Controller에는 @Component가 이미 포함되어 있음  
+> 그래서 위 코드처럼 @Component를 따로 선언해줄 필요없이 기존 @Controller로도 문제없이 동작
+
+`@Component`를 메타 어노테이션으로 가지고 있는 다른 어노테이션을 붙여도 동일하게 동작 가능  
+메타 어노테이션이란, 어노테이션 위에 붙은 어노테이션이라는 의미
+
+어노테이션을 직접 만들어봄
+
+```java
+@Retention(RetentionPolicy.RUNTIME)
+@Target(ElementType.TYPE)
+@Component
+public @interface MyComponent {
+}
+```
+- @Retention
+  - 해당 어노테이션이 어디까지 살아있을 것인가, 언제까지 유지될 것인가 지정
+- @Target
+  - 어노테이션을 적용할 대상
+
+그냥 `@Component`를 사용하지 않고 따로 정의해서 사용하는 이유  
+`@Component`가 붙었다는 것은 Bean 오브젝트로 등록이 된다는 의미인데, 이 Bean이 어떤 종류인지를 구체적으로 명시하고 싶음  
+Spring이 미리 만들어준 `@Controller`, `@Service` 등이 있음
+
+`@RestController` vs `@Controller`  
+`@Controller`는 `@Component`를 메타 어노테이션으로 가지고 있고, `@RestController`는 `@Controller`를 메타 어노테이션으로 가지고 있음  
+그리고 `@RestController`는 `@ResponseBody`도 메타 어노테이션으로 가지고 있음.
+
+`@RestController`의 또 하나의 장점은 `@RequestMapping`을 클래스단에 선언할 필요를 없애줌  
+`@RequestMapping`을 클래스단에 선언하지 않아도 디스패치 서블릿이 해당 클래스 안에 매핑 정보가 담겨 있을 거라는 판단하고 메소드를 탐색함
+
+```java
+@RestController
+public class HelloController {
+    private final HelloService service;
+
+    public HelloController(HelloService service) {
+        this.service = service;
+    }
+
+    @GetMapping("/hello")
+    public String hello(String name) {
+        return service.sayHello(Objects.requireNonNull(name));
+    }
+}
+```
+- 다만 클래스단의 `@RequestMapping`을 제거하며 `/toby`도 제거했기 때문에 변경된 URI를 신경써야 함
+
 ## Bean의 생명주기 메소드
 
+지금까지 만든 오브젝트 중 실제 애플리케이션의 기능을 담당하는 것은 HelloController, SimpleHelloService  
+그 외에 생성한 오브젝트는 TomcatServletWebServerFactory, DispatcherServlet  
+이 두 개는 애플리케이션의 기능을 제공하기 위한 오브젝트는 아니지만 없으면 애플리케이션을 시작할 수 없음  
+그래서 이번엔 두 오브젝트도 Bean으로 등록해서 스프링 컨테이너가 관리하게 만듬
+
+Factory Method를 활용하여 Bean으로 등록
+
+```java
+@Bean
+public ServletWebServerFactory servletWebServerFactory() {
+    return new TomcatServletWebServerFactory();
+}
+
+@Bean
+public DispatcherServlet dispatcherServlet() {
+    return new DispatcherServlet();
+}
+
+public static void main(String[] args) {
+    AnnotationConfigWebApplicationContext context = new AnnotationConfigWebApplicationContext() {
+        @Override
+        protected void onRefresh() {
+            super.onRefresh();
+
+            ServletWebServerFactory serverFactory = this.getBean(ServletWebServerFactory.class);
+            DispatcherServlet dispatcherServlet = this.getBean(DispatcherServlet.class);
+            // dispatcherServlet.setApplicationContext(this);
+
+            WebServer webServer = serverFactory.getWebServer(servletContext -> {
+                servletContext.addServlet("dispatcherServlet", dispatcherServlet)
+                    .addMapping("/*");
+            });
+            webServer.start();
+        }
+    };
+    context.register(TobyApplication.class);
+    context.refresh();
+}
+```
+- Tomcat이 아닌 다른 WebServer를 사용할 수 있으므로 상위 타입으로 반환타입 설정
+- DispatcherServlet은 스프링 컨테이너가 필요함
+  - DispatcherServlet 변수 할당 후 setApplicationContext()로 주입 가능
+  - 하지만, setApplicationContext()를 추가하지 않아도 정상적으로 동작함
+    - 스프링 컨테이너가 디스패처서블릿은 애플리케이션 컨텍스트가 필요하다고 판단하고 주입해줌
+- 생성자로 생성하던 부분을 제거하고 스프링 컨테이너로부터 가져오는 getBean을 활용하여 변수 할당
+
+스프링 컨테이너가 애플리케이션 컨텍스트를 주입해준 과정을 이해하기 위해서는 Bean의 라이프사이클을 알아야함  
+우선 디스패처 서블릿의 type hierarchy(type 정보를 계층화해서 보여주는 IDE 기능 - ^H)를 먼저 살펴봄  
+디스패처서블릿이 구현하고 있는 인터페이스 중에서 ApplicationContextAware라는 인터페이스가 있음  
+이를 더 살펴보면 setApplicationContext()를 확인할 수 있음  
+Bean을 컨테이너가 등록하고 관리하는 중에 컨테이너가 관리하는 오브젝트를 Bean에다가 주입해주는 라이프사이클 메소드임을 확인 가능  
+이 인터페이스를 구현한 어떤 클래스가 스프링에 빈으로 등록이 되면 인터페이스의 setter 메소드를 사용해서 주입해줌
+
+확인해보기 위해 HelloController에 implement하여 애플리케이션 컨텍스트를 주입받는 setter 메소드를 오버라이딩
+
+```java
+@RestController
+public class HelloController implements ApplicationContextAware {
+    private final HelloService service;
+    private ApplicationContext applicationContext;
+
+    public HelloController(HelloService service) {
+        this.service = service;
+    }
+
+    @GetMapping("/hello")
+    public String hello(String name) {
+        return service.sayHello(Objects.requireNonNull(name));
+    }
+
+    @Override
+    public void setApplicationContext(ApplicationContext applicationContext) throws BeansException {
+        System.out.println("applicationContext = " + applicationContext);
+        this.applicationContext = applicationContext;
+    }
+}
+```
+
+요청을 보내지 않고 서버를 재가동하여 실행시키기만 해도 확인 가능
+
+```bash
+17:53:32.793 [main] INFO org.springframework.boot.web.embedded.tomcat.TomcatWebServer -- Tomcat started on port 8080 (http) with context path '/'
+applicationContext = Root WebApplicationContext, started on Fri Jun 28 17:53:32 KST 2024
+```
+
+ApplicationContext를 컨테이너가 넣어준다는 얘기는 해당 타입의 오브젝트도 스프링 컨테이너 입장에서는  
+자기가 관리하는 Bean 오브젝트로 취급한다는 의미  
+그래서 setter가 아니라 생성자로 주입받아서 사용할수도 있음 (생성자로 받으면 final로 선언 가능)
+
+```java
+@RestController
+public class HelloController {
+    private final HelloService service;
+    private final ApplicationContext applicationContext;
+
+    public HelloController(HelloService service, ApplicationContext applicationContext) {
+        this.service = service;
+        this.applicationContext = applicationContext;
+
+        System.out.println("Application context: " + applicationContext);
+    }
+
+    @GetMapping("/hello")
+    public String hello(String name) {
+        return service.sayHello(Objects.requireNonNull(name));
+    }
+}
+```
+
+```bash
+17:56:37.890 [main] INFO org.springframework.boot.web.embedded.tomcat.TomcatWebServer -- Tomcat started on port 8080 (http) with context path '/'
+Application context: Root WebApplicationContext, started on Fri Jun 28 17:56:37 KST 2024
+```
+
 ## SpringBootApplication
+
+기존 main 메소드 내에 있던걸 다른 메소드 run()으로 추출
+
+```java
+@Configuration
+@ComponentScan
+public class TobyApplication {
+
+    @Bean
+    public ServletWebServerFactory servletWebServerFactory() {
+        return new TomcatServletWebServerFactory();
+    }
+
+    @Bean
+    public DispatcherServlet dispatcherServlet() {
+        return new DispatcherServlet();
+    }
+
+    public static void main(String[] args) {
+        run(TobyApplication.class, args);
+    }
+
+    private static void run(Class<?> applicationClass, String[] args) {
+        AnnotationConfigWebApplicationContext context = new AnnotationConfigWebApplicationContext() {
+            @Override
+            protected void onRefresh() {
+                super.onRefresh();
+
+                ServletWebServerFactory serverFactory = this.getBean(ServletWebServerFactory.class);
+                DispatcherServlet dispatcherServlet = this.getBean(DispatcherServlet.class);
+                // dispatcherServlet.setApplicationContext(this);
+
+                WebServer webServer = serverFactory.getWebServer(servletContext -> {
+                    servletContext.addServlet("dispatcherServlet", dispatcherServlet)
+                        .addMapping("/*");
+                });
+                webServer.start();
+            }
+        };
+        context.register(applicationClass);
+        context.refresh();
+    }
+}
+```
+- `run()`을 재사용하기 위해 매번 달라지는 정보를 파라미터로 넘겨줘야 함
+  - 매번 달라지는 정보는 `main()`이 있는 클래스 이름
+  - 하지만 해당 클래스는 `@Configuration`이 붙어있어야 하고, `@ComponentScan`과 Factory Method를 가지고 스프링 컨테이너에게 애플리케이션 구성 정보를 알려주는 클래스여야 함
+- Command Line에서 전달받는 argument들(`String[] args`)을 사용할수도 있으니 파라미터로 넘겨줌
+
+스프링 컨테이너의 준비작업을 하는 `run()`을 재사용할 수 있음  
+다른 Application.java를 만들고 `run()`을 이동
+```java
+public class MyApplication {
+    public static void run(Class<?> applicationClass, String[] args) {
+        AnnotationConfigWebApplicationContext context = new AnnotationConfigWebApplicationContext() {
+            @Override
+            protected void onRefresh() {
+                super.onRefresh();
+
+                ServletWebServerFactory serverFactory = this.getBean(ServletWebServerFactory.class);
+                DispatcherServlet dispatcherServlet = this.getBean(DispatcherServlet.class);
+                // dispatcherServlet.setApplicationContext(this);
+
+                WebServer webServer = serverFactory.getWebServer(servletContext -> {
+                    servletContext.addServlet("dispatcherServlet", dispatcherServlet)
+                        .addMapping("/*");
+                });
+                webServer.start();
+            }
+        };
+        context.register(applicationClass);
+        context.refresh();
+    }
+}
+
+// TobyApplication.java
+public static void main(String[] args) {
+    MyApplication.run(TobyApplication.class, args);
+}
+```
+- 다른 클래스에서 사용해야 하므로 `private`이 아닌 `public`으로 변경
+- 변경하고 보니, 많이보던 코드가 됨
+  - 처음 SpringBoot Application을 처음 만들었을때 Spring Initializr가 만들어준 코드와 똑같음
+
+리팩토링 이후에도 정상적으로 동작하는지 서버를 재가동하여 확인
+
+```bash
+$ http -v GET ":8080/hello?name=Spring"
+
+HTTP/1.1 200 
+Connection: keep-alive
+Content-Length: 14
+Content-Type: text/plain;charset=ISO-8859-1
+Date: Fri, 28 Jun 2024 09:10:35 GMT
+Keep-Alive: timeout=60
+
+Hello, Spring!
+```
+
+앞서 생성한 MyApplication.java는 삭제하고 `main()`내의 `run()`을 `SpringApplication.run()`으로 변경해도 기존과 동일하게 정상적으로 동작함
+
+```java
+// TobyApplication.java
+public static void main(String[] args) {
+    SpringApplication.run(TobyApplication.class, args);
+}
+```
+
+```bash
+$ http -v GET ":8080/hello?name=Spring"
+
+HTTP/1.1 200 
+Connection: keep-alive
+Content-Length: 14
+Content-Type: text/plain;charset=ISO-8859-1
+Date: Fri, 28 Jun 2024 09:11:29 GMT
+Keep-Alive: timeout=60
+
+Hello, Spring!
+```
+
+
+다만, `SpringApplication.run()`을 사용하더라도 Factory Method는 존재해야 함  
+ServletWebServerFactory Bean Factory Method를 제거하고 서버를 재가동해보면 서버 구동에 실패함
+
+```java
+// TobyApplication.java
+// @Bean
+// public ServletWebServerFactory servletWebServerFactory() {
+//     return new TomcatServletWebServerFactory();
+// }
+```
+- 주석처리하고 다시 실행시켜서 실패하는걸 확인
+
+```bash
+***************************
+APPLICATION FAILED TO START
+***************************
+
+Description:
+
+Web application could not be started as there was no org.springframework.boot.web.servlet.server.ServletWebServerFactory bean defined in the context.
+
+Action:
+
+Check your application's dependencies for a supported servlet web server.
+Check the configured web application type.
+
+
+Process finished with exit code 1
+```
