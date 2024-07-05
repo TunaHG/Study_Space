@@ -161,3 +161,59 @@ void failHelloApi() {
   - 400 응답을 주기 위해서는 Controller를 수정하거나, 400으로 응답하라고 스프링 컨테이너에게 알려줘야 함 (추후 학습)
 
 ## DI를 이용한 Decorator, Proxy 패턴
+
+이전엔 인터페이스 타입의 오브젝트를 테스트 코드에서 직접 만들어서 주입했음  
+`SimpleHelloService helloService = new SimpleHelloService();`
+
+HelloService를 구현하며 HelloService를 구현한 다른 오브젝트의 메소드를 호출하는 HelloDecorator 활용  
+메인이 되는 기능을 제공하는 오브젝트를 건드리지 않고 어떤 책임이나 기능을 구현하고 싶은 경우 활용  
+이런 Decorator는 하나가 아니라 여러 개를 추가해도 괜찮음
+
+스프링 컨테이너는 객체가 필요로 하는 인터페이스 타입을 구현한 오브젝트가 딱 한 개만 존재하면 단일 주입 후보로 바로 주입  
+과거에는 @Autowired를 붙이는 작업이 필요했으나, 스프링 버전이 올라가며 @Autowired를 생략해도 생성자가 하나라면 알아서 주입하도록 변경됨
+
+HelloDecorator를 먼저 생성해봄
+
+```java
+@Service
+@Primary
+public class HelloDecorator implements HelloService {
+    private final HelloService helloService;
+
+    public HelloDecorator(HelloService helloService) {
+        this.helloService = helloService;
+    }
+
+    @Override
+    public String sayHello(String name) {
+        return "*" + helloService.sayHello(name) + "*";
+    }
+}
+```
+- HelloService를 구현하며, 의존성을 가지고 있어야함
+  - `implement HelloService`, `private final HelloService helloService`
+- HelloController에서 HelloService를 구현한 Bean을 가져와야 하는데, 어떤 것을 가져와줘야할지 모름
+  - XML로 명시하거나, 팩토리 메소드를 활용하는 등 여러 해결방법이 있지만 @Primary를 사용함
+  - HelloService가 필요한 곳에선 @Primary로 선언된 HelloDecorator Bean을 가져오고 @Primary가 선언된 HelloDecorator에서는 @Primary가 선언되지 않은 HelloService 타입인 SimpleHelloService를 가져옴
+
+HelloDecorator를 테스트하는 메소드를 HelloServiceTest에 추가
+
+```java
+@Test
+void helloDecorator() {
+    HelloDecorator decorator = new HelloDecorator(name -> name);
+
+    String res = decorator.sayHello("Spring");
+
+    assertThat(res).isEqualTo("*Spring*");
+}
+```
+- HelloDecorator는 HelloService가 필요한데, SimpleHelloService 오브젝트를 생성해서 전달해도 되지만 익명클래스 사용
+
+Decorator가 여러 개가 추가될 수도 있는데, @Primary는 복잡한 작업이 들어갈 수 있음  
+그래서 이건 자바 코드를 활용해서 명시적으로 정리해주는 방법이 더 나은 방법일 수 있음
+
+지금까지 얘기한 Decorator 패턴은 기존 의존 오브젝트에 동적으로 책임을 추가해주는 방법
+이외에 비슷한 Proxy 패턴이 있음.  
+Proxy는 실체가 존재하는데, 실체를 대신하는 것으로 대체하는 의미  
+Lazy loading이나 remote access와 같은 상황에서 주로 사용
