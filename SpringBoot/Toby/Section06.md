@@ -317,7 +317,106 @@ MySpringBootApplication.java도 `config` 패키지로 이동
 
 ## 동적인 자동 구성 정보 등록
 
+지금은 @Import 하는 클래스들의 이름이 하드 코딩되어 있음. 모든 SpringBoot가 해당 클래스들을 사용하면 괜찮지만, 그렇지 않음  
+그래서 어떤 Configuration들을 동적으로 가져올 수 있는 매커니즘을 도입해야 함  
+동적이라는 것은 @EnableMyAutoConfiguration을 수정하지 않아도 Configuration을 추가할 수 있다는 것
+
+Import Selector라는 것을 활용해야 함. (Spring 3.1부터 도입)  
+ImportSelector.java 파일을 살펴봄
+
+`String[] selectImports(AnnotaionMetadata importingClassMetadata);`  
+import 할 Configuration 클래스의 이름을 String으로 만들어주면, String에 해당하는 Configuration 클래스들을 컨테이너가 구성정보로 사용함  
+이번엔 해당 메소드를 구현하는게 아니라 이 메소드를 한번 더 확장한 DefaultImportSelector 라는걸 사용  
+Configuration 클래스에 구성 정보 생성 작업이 모두 끝난 다음에 ImportSelector가 동작하도록 순서를 지연할 수 있게 만들어주는 것
+
+MyAutoConfigImportSelector 클래스를 새로 생성
+```java
+public class MyAutoConfigImportSelector implements DeferredImportSelector {
+    @Override
+    public String[] selectImports(AnnotationMetadata importingClassMetadata) {
+        return new String[] {
+            "com.study.toby.section06.config.autoconfig.DispatcherServletConfig",
+            "com.study.toby.section06.config.autoconfig.TomcatWebServerConfig"
+        };
+    }
+}
+```
+- DeferredImportSelector는 ImportSelector의 서브 인터페이스
+  - 구현해야될 메소드는 동일
+- selectImports() 메소드 반환값으로 기존 Config 클래스 두 개를 디렉토리 포함해서 String으로 전달
+- ImportSelector는 @Configuration을 붙일 필요가 없음
+
+이제 Import로 MyAutoConfigImportSelector를 가져오도록 수정
+```java
+@Retention(RetentionPolicy.RUNTIME)
+@Target(ElementType.TYPE)
+@Import(MyAutoConfigImportSelector.class)
+public @interface EnableMyAutoConfiguration {
+}
+```
+
+서버를 동작해보면 정상 실행!  
+MyAutoConfigImportSelector.selectImport()의 String 값들을 주석처리하고 다시 실행해보면 에러 발생
+
+> 여기서 쭉 따라왔으면 실행시켰을 때, 에러가 발생하지 않고 정상적으로 동작할 수 있음  
+> 그 이유는 DispatcherServletConfig, TomcatWebServerConfig 두 클래스에 @Configuration을 선언했기 때문  
+> @Configuration이 선언되어 있어 위처럼 Import 해주지 않아도 Bean으로 등록되서 사용이 됨  
+> 두 클래스에 선언된 @Configuration를 제거하고 다시 동작시켜보면 에러가 발생함
+
 ## 자동 구성 정보 파일 분리
+
+소스 코드에 등록해 놨던 정보를 외부 설정 파일로 빼내는 작업 진행  
+읽어오는 Configuration은 SpringBoot의 자동 구성 정보 생성에 사용할 것들이기 때문에 Annotation을 또 하나 생성  
+```java
+// MyAutoConfiguration.java
+@Retention(RetentionPolicy.RUNTIME)
+@Target(ElementType.TYPE)
+@Configuration
+public @interface MyAutoConfiguration {
+}
+```
+- @Configuration을 메타 어노테이션으로 선언
+- 자동 구성 방식에 사용할 Configuration 클래스의 목록을 추가
+
+MyAutoConfigImportSelector를 수정
+```java
+public class MyAutoConfigImportSelector implements DeferredImportSelector {
+    private final ClassLoader classLoader;
+
+    public MyAutoConfigImportSelector(ClassLoader classLoader) {
+        this.classLoader = classLoader;
+    }
+
+    @Override
+    public String[] selectImports(AnnotationMetadata importingClassMetadata) {
+        ImportCandidates candidates = ImportCandidates.load(MyAutoConfiguration.class, classLoader);
+
+        return candidates.getCandidates().toArray(new String[0]);
+    }
+}
+```
+- ClassLoader
+  - 어떤 애플리케이션의 classpath에서 리소스를 읽어올 때는 클래스 로더를 사용
+    - 클래스 로더는 스프링 컨테이너가 Bean을 생성하기 위해 클래스를 로딩할 때 사용
+  - BeanClassLoaderAware라는 인터페이스를 구현하면 스프링 컨테이너가 Bean 클래스 로더를 주입해줌
+    - 다른 방법은, 구현하지 않고 생성자를 통해 주입이 되도록 만드는 방법. 이 방법을 사용
+- load()로 가져온 ImportCandidates에는 Configuration 클래스들의 목록이 들어있음
+  - 그 목록을 selectImports()의 return 값으로 전달
+
+ImportCandidates.load()를 들어가서 살펴보면,  
+클래스 패스의 META-INF/spring/full-qualified-annotation-name.imports 라는 파일을 읽어온다고 나와있음  
+그래서 해당 파일을 생성해봄  
+
+```
+# src/mainresoureces/META-INF/spring 디렉토리에
+# com.study.toby.section06.config.MyAutoConfiguration.imports 파일 생성
+
+com.study.toby.section06.config.autoconfig.DispatcherServletConfig
+com.study.toby.section06.config.autoconfig.TomcatWebServerConfig
+```
+
+서버를 동작해보면 정상 실행!  
+...MyAutoConfiguration.imports 파일의 내용을 지우고 다시 실행해보면 에러 발생
 
 ## 자동 구성 어노테이션 적용
 
