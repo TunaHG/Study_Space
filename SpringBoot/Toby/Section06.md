@@ -335,8 +335,8 @@ public class MyAutoConfigImportSelector implements DeferredImportSelector {
     @Override
     public String[] selectImports(AnnotationMetadata importingClassMetadata) {
         return new String[] {
-            "com.study.toby.section06.config.autoconfig.DispatcherServletConfig",
-            "com.study.toby.section06.config.autoconfig.TomcatWebServerConfig"
+            "com.study.toby.config.autoconfig.DispatcherServletConfig",
+            "com.study.toby.config.autoconfig.TomcatWebServerConfig"
         };
     }
 }
@@ -409,10 +409,10 @@ ImportCandidates.load()를 들어가서 살펴보면,
 
 ```
 # src/mainresoureces/META-INF/spring 디렉토리에
-# com.study.toby.section06.config.MyAutoConfiguration.imports 파일 생성
+# com.study.toby.config.MyAutoConfiguration.imports 파일 생성
 
-com.study.toby.section06.config.autoconfig.DispatcherServletConfig
-com.study.toby.section06.config.autoconfig.TomcatWebServerConfig
+com.study.toby.config.autoconfig.DispatcherServletConfig
+com.study.toby.config.autoconfig.TomcatWebServerConfig
 ```
 
 서버를 동작해보면 정상 실행!  
@@ -444,6 +444,13 @@ public class DispatcherServletConfig {
 @Configuration의 동작 방식에 대해 이해하기 위해 테스트를 작성  
 기존 테스트와 별도의 패키지로 분리해서 ConfigurationTest 생성
 ```java
+// package com.study.toby.config
+public class ConfigurationTest {
+    @Test
+    void configuration() {
+        
+    }
+}
 ```
 
 Common이라는 Bean을 의존하는 Bean1, Bean2가 있다고 가정  
