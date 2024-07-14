@@ -420,10 +420,10 @@ com.study.toby.config.autoconfig.TomcatWebServerConfig
 
 ## 자동 구성 어노테이션 적용
 
-.imports 파일에 작성한 두 Configuration 클래스에는 기존 @Configuration을 제거하고 직접 생성한 @MyAutoConfiguration을 붙임  
+.imports 파일에 작성한 두 Configuration 클래스에는 기존 `@Configuration`을 제거하고 직접 생성한 `@MyAutoConfiguration`을 붙임  
 이렇게 해야 동작하는 것은 아닌데, 일종의 관례
 
-그리고 MyAutoCongiruation에 붙은 메타 어노테이션 @Configuration을 수정  
+그리고 MyAutoCongiruation에 붙은 메타 어노테이션 `@Configuration`을 수정  
 ```java
 // TomcatWebServerConfig.java
 @MyAutoConfiguration
@@ -437,11 +437,11 @@ public class DispatcherServletConfig {
     // ...
 }
 ```
-- proxyBeanMethod 값을 false로 수정
+- `proxyBeanMethod` 값을 `false`로 수정
 
 ## @Configuration과 proxyBeanMethods
 
-@Configuration의 동작 방식에 대해 이해하기 위해 테스트를 작성  
+`@Configuration`의 동작 방식에 대해 이해하기 위해 테스트를 작성  
 기존 테스트와 별도의 패키지로 분리해서 ConfigurationTest 생성
 ```java
 // package com.study.toby.config
@@ -455,45 +455,130 @@ public class ConfigurationTest {
 
 Common이라는 Bean을 의존하는 Bean1, Bean2가 있다고 가정  
 Bean은 싱글톤으로 생성되기 때문에 Bean1, 2에 주입되는 Common이 같은 Bean이어야 함  
-먼저 해당 Bean Class들을 생성
 ```java
+public class ConfigurationTest {
+    @Test
+    void configuration() {
+        MyConfig myConfig = new MyConfig();
+
+        Bean1 bean1 = myConfig.bean1();
+        Bean2 bean2 = myConfig.bean2();
+
+        assertThat(bean1.common).isSameAs(bean2.common);
+    }
+
+    @Configuration
+    static class MyConfig {
+        @Bean
+        Common common() {
+            return new Common();
+        }
+
+        @Bean
+        Bean1 bean1() {
+            return new Bean1(common());
+        }
+
+        @Bean
+        Bean2 bean2() {
+            return new Bean2(common());
+        }
+    }
+
+    static class Bean1 {
+        private final Common common;
+
+        public Bean1(Common common) {
+            this.common = common;
+        }
+    }
+
+    static class Bean2 {
+        private final Common common;
+
+        public Bean2(Common common) {
+            this.common = common;
+        }
+    }
+
+    static class Common {
+    }
+}
 ```
-- MyConfig를 살펴보면, Bean1과 Bean2의 factory 메소드를 생성할 때, common() 메소드를 호출하고 있는데  
+- MyConfig를 살펴보면, Bean1과 Bean2의 factory 메소드를 생성할 때, `common()` 메소드를 호출하고 있는데  
   이는 각각 Common을 생성하는 코드기 때문에 결국 Bean1과 Bean2가 가지는 Common이 다르게 됨
 - 이를 테스트 하는 코드가 테스트 메소드에 존재함
-  - 두 객체의 값이 같은지를 비교하는 isSameAs() 활용
-  - MyConfig 오브젝트를 만들고, Bean1, Bean2를 가져온 다음 두 오브젝트의 common이 같은지 비교
+  - 두 객체의 값이 같은지를 비교하는 `isSameAs()` 활용
+  - MyConfig 오브젝트를 만들고, Bean1, Bean2를 가져온 다음 두 오브젝트의 common이 같은지 비교 **(실패)**
 
 다만, MyConfig를 스프링 컨테이너의 구성 정보로 사용하게 되면 동작하는 방식이 달라짐
 ```java
+@Test
+void configuration() {
+    AnnotationConfigApplicationContext ac = new AnnotationConfigApplicationContext();
+    ac.register(MyConfig.class);
+    ac.refresh();
+
+    Bean1 bean1 = ac.getBean(Bean1.class);
+    Bean2 bean2 = ac.getBean(Bean2.class);
+    assertThat(bean1.common).isSameAs(bean2.common);
+}
 ```
 - MyConfig를 직접 생성하지 않고, 애플리케이션 컨텍스트를 만들어서 MyConfig Bean을 등록해주고 초기화를 진행함
 - 이후 애플리케이션 컨텍스트로부터 Bean1, Bean2 오브젝트를 가져옴
 - Bean1, Bean2에서 가지고 있는 Common을 비교
 
-기본적으로 @Configuration proxyBeanMethod가 default 값인 true로 설정되어 있는 경우  
+기본적으로 `@Configuration` `proxyBeanMethod`가 default 값인 `true`로 설정되어 있는 경우  
 Configuration 클래스가 Bean으로 등록될 때 직접 Bean으로 등록되는 것이 아니라  
 Proxy Object를 앞에 하나 두고 그게 Bean으로 등록이 됨
 
 어떤 식으로 Proxy가 만들어지는지 테스트를 통해 살펴봄  
 ```java
+public class ConfigurationTest {
+    // ... 기존 configuration() 테스트 메소드
+
+    @Test
+    void proxyCommonMethod() {
+        MyConfigProxy myConfigProxy = new MyConfigProxy();
+
+        Bean1 bean1 = myConfigProxy.bean1();
+        Bean2 bean2 = myConfigProxy.bean2();
+
+        assertThat(bean1.common).isSameAs(bean2.common);
+    }
+
+    static class MyConfigProxy extends MyConfig {
+        private Common common;
+
+        @Override
+        Common common() {
+            if (this.common == null) {
+                this.common = super.common();
+            }
+            
+            return this.common;
+        }
+    }
+
+    // ... 기존 MyConfig, Common, Bean1, Bean2 클래스들
+}
 ```
 - MyConfigProxy 클래스를 추가
-  - common()을 오버라이딩하되, super.common()으로부터 받는 반환값 Common을 변수로 설정
-- 이를 테스트하는 proxyCommonMethod() 테스트 메소드 생성
+  - `common()`을 오버라이딩하되, `super.common()`으로부터 받는 반환값 Common을 변수로 설정
+- 이를 테스트하는 `proxyCommonMethod()` 테스트 메소드 생성
   - 이전에 진행해본 테스트와 동일하게 MyConfigProxy 생성후 Bean1, 2를 가져오고 각각의 Common이 같은지 비교
 - 이전에 실패했던 테스트와 다르게 성공하는 것을 확인할 수 있음
 
 팩토리 메소드를 사용해서 오브젝트를 생성하는 코드를 여러 번 호출하더라도 한 개의 오브젝트만 사용됨  
 Spring의 기본적인 동작 방식인데 이걸 자바 코드로만 가능하게 하려다 보니 약간 다르게 동작하는 위험성이 생김  
 하나의 Bean을 두 개 이상의 다른 Bean에서 의존하고 있다면 팩토리 메소드를 호출할 때마다 새로운 Bean이 만들어지는 위험성  
-스프링이 그것을 해결하기 위해 @Configuration이 붙은 클래스는 기본적으로 Proxy를 만들어서 기능을 확장
+스프링이 그것을 해결하기 위해 `@Configuration`이 붙은 클래스는 기본적으로 Proxy를 만들어서 기능을 확장
 
-앞서 @MyAutoConfiguration에서는 proxyBeanMethod를 false로 수정했음  
+앞서 `@MyAutoConfiguration`에서는 `proxyBeanMethod`를 `false`로 수정했음  
 Bean 팩토리 메소드를 통해서 Bean 오브젝트를 만들 때 또 다른 Bean 팩토리 메소드를 호출해서 의존 오브젝트를 가져오는 식으로  
 코드를 작성하지 않았다면 굳이 매번 시간이 걸리고 비용이 드는 Proxy를 만드는 방식으로 이걸 사용할 필요가 없기 때문
 
 스프링에 적용된 것을 찾아봄  
-@EnableScheduling를 살펴보면 @Import로 SchedulingConfiguration이라는 다른 Configuration 클래스를 로딩함  
+`@EnableScheduling`를 살펴보면 `@Import`로 SchedulingConfiguration이라는 다른 Configuration 클래스를 로딩함  
 SchedulingConfiguration로 들어가서 살펴보면 클래스 Bean을 생성하는데, Bean을 생성하는 동안 다른 오브젝트를 의존하지 않고 있음  
-이런 경우라면 굳이 매번 Proxy를 만들어서 적용할 필요가 없으니 proxyBeanMethod 값이 false로 선언되어 있음
+이런 경우라면 굳이 매번 Proxy를 만들어서 적용할 필요가 없으니 `proxyBeanMethod` 값이 `false`로 선언되어 있음
