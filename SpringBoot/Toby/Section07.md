@@ -69,9 +69,244 @@ Caused by: org.springframework.context.ApplicationContextException: Unable to st
 
 ## @Conditional과 Condition
 
+Bean으로 등록할 Configuration의 후보를 지정해놨으므로, 조건을 달아서 그 중 어떤 구성 정보를 활용할지 결정을 내리는 매커니즘을 만들어봄  
+Tomcat, Jetty 중 어떤 것을 선택하는지는 나중에 확인.
 
+우선 Import Selector가 로딩하는 모든 Configuration 후보 중에서 어떤 것을 Bean으로 등록할지 말지를 선택하게 만드는 방법 추가  
+```java
+@MyAutoConfiguration
+@Conditional(JettyWebServerConfig.JettyCondition.class)
+public class JettyWebServerConfig {
+    @Bean("jettyWebServerFactory")
+    public ServletWebServerFactory servletWebServerFactory() {
+        return new JettyServletWebServerFactory();
+    }
+
+    static class JettyCondition implements Condition {
+        @Override
+        public boolean matches(ConditionContext context,
+                               AnnotatedTypeMetadata metadata) {
+            return true;
+        }
+    }
+}
+```
+- Class 레벨에 @Conditional 선언
+  - @Conditional은 element를 꼭 하나 등록해야 하는데, 그 타입은 Condition이라는 인터페이스를 구현한 클래스여야 함
+- Condition이라는 인터페이스를 구현한 JettyCondition이라는 Class를 inner class로 선언
+  - 스프링 컨테이너에게 조건에 해당하는지를 알려주는 matches() 오버라이딩
+    - ConditionContext는 현재 스프링 컨테이너와 애플리케이션이 돌아가고 있는 환경에 대한 정보를 얻을 수 있는 오브젝트
+    - AnnotatedTypeMetaData는 @Conditional이 선언된 클래스와 그 클래스가 사용하는 다른 어노테이션들의 정보를 얻을 수 있는 오브젝트
+
+JettyWebServerConfig를 수정했으니, TomcatWebServerConfig도 수정
+```java
+@MyAutoConfiguration
+@Conditional(TomcatWebServerConfig.TomcatCondition.class)
+public class TomcatWebServerConfig {
+    @Bean("tomcatWebServerFactory")
+    public ServletWebServerFactory servletWebServerFactory() {
+        return new TomcatServletWebServerFactory();
+    }
+
+    static class TomcatCondition implements Condition {
+        @Override
+        public boolean matches(ConditionContext context,
+                               AnnotatedTypeMetadata metadata) {
+            return false;
+        }
+    }
+}
+```
+
+우선 위처럼 JettyCondition.matches()의 return 값을 true, TomcatCondition.matches()의 return 값을 false로 설정하고 서버 실행
+
+```shell
+...
+2024-07-18T17:56:27.086+09:00  INFO 96894 --- [toby] [           main] o.s.b.web.embedded.jetty.JettyWebServer  : Jetty started on port 8080 (http/1.1) with context path '/'
+2024-07-18T17:56:27.087+09:00  INFO 96894 --- [toby] [           main] c.s.t.s.helloboot.TobyApplication        : Started TobyApplication in 0.429 seconds (process running for 0.624)
+```
+- 정상적으로 서버가 실행됬음을 확인
+- 로그를 보면 Tomcat이 아닌 Jetty 서버가 실행되었음을 확인할 수 있음
+  - 반대로 Jetty를 false, Tomcat을 true로 수정하고 Tomcat 서버가 동작하는지 확인
+
+@Conditional은 Class 레벨과 Method 레벨에 모두 선언할 수 있음  
+하지만 @Conditional을 선언한 Class 내의 Method에 @Conditional을 또 선언하면,  
+Class 레벨의 @Conditional을 먼저 체크하고 그 다음 Method 레벨의 @Condtional을 체크함  
+(Class 레벨의 @Conditional이 false라면 Method 레벨은 확인하지도 않음)
+
+이제 조건을 부여하는 방법을 학습하기 전에, 위와 같은 새로운 기술에 대한 학습용 테스트를 먼저 만들어봄
 
 ## @Conditional 학습테스트
+
+ConfigurationTest를 진행했던 config 디렉토리에 ConditionalTest 새로 생성
+
+```java
+public class ConditionalTest {
+    // ... 테스트 메소드
+
+    @Configuration
+    @Conditional(TrueCondition.class)
+    static class Config1 {
+        @Bean
+        MyBean myBean() {
+            return new MyBean();
+        }
+    }
+
+    @Configuration
+    @Conditional(FalseCondition.class)
+    static class Config2 {
+        @Bean
+        MyBean myBean() {
+            return new MyBean();
+        }
+    }
+
+    static class MyBean {
+
+    }
+
+    static class TrueCondition implements Condition {
+        @Override
+        public boolean matches(ConditionContext context,
+                                AnnotatedTypeMetadata metadata) {
+            return true;
+        }
+    }
+
+    static class FalseCondition implements Condition {
+        @Override
+        public boolean matches(ConditionContext context,
+                                AnnotatedTypeMetadata metadata) {
+            return false;
+        }
+    }
+}
+```
+- 등록에 사용할 MyBean static class 생성
+- 등록이 되는지 확인할 Config1 static class 생성
+  - static class는 중첩되어 있는 클래스긴 하지만, 외부 클래스와 직접적인 관련은 없는 그냥 평범한 클래스와 같다고 생각
+  - 등록이 되는지만 확인할 예정이므로 Bean 팩토리 메소드 하나 생성
+- 등록이 안되는지 확인할 Config2 static class 생성
+- 앞서 생성한 Config1, Config2에 @Conditional로 조건 추가
+  - @Conditional에 들어갈 클래스로 TrueCondition static class 추가
+  - TrueCondition은 항상 true만 return 하므로 false를 return할 FalseCondition static class도 추가 생성
+  - Config1은 TrueCondition으로 @Conditional element 선언, Config2는 반대로 FalseCondition 선언
+
+Config Class들을 생성했으니 테스트 메소드 생성
+```java
+public class ConditionalTest {
+    @Test
+    void conditional() {
+        // true
+        ApplicationContextRunner runner = new ApplicationContextRunner();
+        runner.withUserConfiguration(Config1.class)
+              .run(context -> {
+                  assertThat(context).hasSingleBean(MyBean.class);
+                  assertThat(context).hasSingleBean(Config1.class);
+              });
+
+        // false
+        new ApplicationContextRunner().withUserConfiguration(Config2.class)
+            .run(context -> {
+                assertThat(context).doesNotHaveBean(MyBean.class);
+                assertThat(context).doesNotHaveBean(Config2.class);
+            });
+    }
+
+    // ... static class 들
+}
+```
+- ApplicationContextRunner: Assert 라이브러리에서 만들어진 테스트 전용 애플리케이션 컨텍스트
+  - .withConfiguration(): Configuration 클래스 설정
+  - .run(): 람다 표현식 내에서 검증 메소드 실행 가능
+- false인 경우는 ApplcationContextRunner를 재사용하지 않을 경우, 변수 선언이 필요없으니 바로 사용
+- Config1을 사용하면 조건이 true이므로 MyBean, Config1이 모두 Bean으로 생성
+- Config2를 사용하면 조건이 false이므로 MyBean, Config2이 모두 Bean으로 생성되지 않음
+
+@Conditional을 메타 어노테이션으로 가지는 @TrueConditional, @FalseConditional 생성
+```java
+@Retention(RetentionPolicy.RUNTIME)
+@Target(ElementType.TYPE)
+@Conditional(TrueCondition.class)
+@interface TrueConditional {
+
+}
+
+@Configuration
+// @Conditional(TrueCondition.class) -- 제거
+@TrueConditional
+static class Config1 {
+    @Bean
+    MyBean myBean() {
+        return new MyBean();
+    }
+}
+
+@Retention(RetentionPolicy.RUNTIME)
+@Target(ElementType.TYPE)
+@Conditional(FalseCondition.class)
+@interface FalseConditional {
+
+}
+
+@Configuration
+// @Conditional(FalseCondition.class) -- 제거
+@FalseConditional
+static class Config2 {
+    @Bean
+    MyBean myBean() {
+        return new MyBean();
+    }
+}
+```
+
+true, false를 다 적용할 수 있고, 그 조건을 어노테이션의 element로 지정할 수 있는 방식으로 @BooleanConditional 생성
+```java
+@Retention(RetentionPolicy.RUNTIME)
+@Target(ElementType.TYPE)
+@Conditional(BooleanCondition.class)
+@interface BooleanConditional {
+    boolean value();
+}
+
+static class BooleanCondition implements Condition {
+    @Override
+    public boolean matches(ConditionContext context,
+                            AnnotatedTypeMetadata metadata) {
+        Map<String, Object> attributes = metadata.getAnnotationAttributes(BooleanConditional.class.getName());
+        return (Boolean) attributes.get("value");
+    }
+}
+```
+- element가 필요하니 BooleanConditional 내에 value() 하나 선언
+  - element가 하나만 존재한다면, 어노테이션의 파라미터에 이름을 생략할 수 있음
+- @BooleanConditional의 조건 파악에 사용될 BooleanCondition static class도 생성
+  - 어노테이션의 element 값을 가져오기 위해 AnnotatedTypeMetadata 사용
+  - getAnnotationAttributes(): 메타데이터에서 읽어올 어노테이션 내의 attributes(= elements). 어노테이션 이름을 활용해서 읽어옴
+
+@BooleanConditional을 활용하도록 Config1, Config2를 수정
+```java
+@Configuration
+// @TrueConditional -- 제거
+@BooleanConditional(true)
+static class Config1 {
+    @Bean
+    MyBean myBean() {
+        return new MyBean();
+    }
+}
+
+@Configuration
+// @FalseConditional -- 제거
+@BooleanConditional(false)
+static class Config2 {
+    @Bean
+    MyBean myBean() {
+        return new MyBean();
+    }
+}
+```
 
 ## 커스텀 @Conditional
 
