@@ -310,6 +310,118 @@ static class Config2 {
 
 ## 커스텀 @Conditional
 
+조건에 따라 Tomcat과 Jetty 중에서 하나를 사용하도록 설정할 예정  
+스프링 부트가 자동 구성에서 가장 대표적으로 사용하고 있는 방법은 어떤 라이브러리가 이 프로젝트에 포함되어 있는가를 체크해보는 방법  
+TomcatServletWebServerFactory나 JettyServletWebServerFactory는 스프링 자체에 들어가 있는 객체고 Tomcat이나 Jetty 자체의 클래스는 아님  
+Tomcat은 org.apache.catalina.startup 패키지에 Tomcat이라는 클래스가 있고  
+Jetty는 org.eclipse.jetty.server 패키지에 Server라는 클래스가 있음
+
+Tomcat, Server 클래스가 존재하는지를 기준으로 각 Server를 띄우는 조건을 추가해봄
+```java
+// TomcatWebServerConfig.java
+static class TomcatCondition implements Condition {
+    @Override
+    public boolean matches(ConditionContext context,
+                            AnnotatedTypeMetadata metadata) {
+        return ClassUtils.isPresent(
+            "org.apache.catalina.startup.Tomcat",
+            context.getClassLoader()
+        );
+    }
+}
+
+// JettyWebServerConfig.java
+static class JettyCondition implements Condition {
+    @Override
+    public boolean matches(ConditionContext context,
+                            AnnotatedTypeMetadata metadata) {
+        return ClassUtils.isPresent(
+            "org.eclipse.jetty.server.Server",
+            context.getClassLoader()
+        );
+    }
+}
+```
+- 스프링에 내장된 유틸리티 클래스로 ClassUtils 활용
+  - ClassUtils.isPresent()를 통해 클래스가 현재 프로젝트에 존재하는지 확인
+  - 클래스명만 작성하는게 아니라 패키지가 포함된 전체 경로를 String으로 작성해야 함
+  - ClassLoader를 전달해야 하는데 ConditionContext에서 가져올 수 있음
+
+이와 같이 TomcatWebServerConfig와 JettyWebServerConfig를 수정하면 현재 Tomcat, Jetty가 모두 라이브러리로 선언되어 있기 때문에  
+어떤 WebServer를 띄울지 선택하지 못해 서버 실행이 실패함
+```shell
+org.springframework.context.ApplicationContextException: Unable to start web server
+...
+Caused by: org.springframework.context.ApplicationContextException: Unable to start ServletWebServerApplicationContext due to multiple ServletWebServerFactory beans : tomcatWebServerFactory,jettyWebServerFactory
+...
+```
+
+그래서 build.gradle에서 Jetty 의존성을 제거하거나, Tomcat을 제거해야함
+```groovy
+// Jetty 의존성을 제거할 경우
+dependencies {
+    implementation 'org.springframework.boot:spring-boot-starter-web'
+    // implementation 'org.springframework.boot:spring-boot-starter-jetty'
+    testImplementation 'org.springframework.boot:spring-boot-starter-test'
+}
+
+// Tomcat 의존성을 제거할 경우
+dependencies {
+    implementation('org.springframework.boot:spring-boot-starter-web') {
+        exclude group: 'org.springframework.boot', module: 'spring-boot-starter-tomcat'
+    }
+    implementation 'org.springframework.boot:spring-boot-starter-jetty'
+    testImplementation 'org.springframework.boot:spring-boot-starter-test'
+}
+```
+- Jetty 의존성은 새로 설정해주었으므로 그냥 삭제하면 문제없음
+- Tomcat은 spring-boot-starter-web에 내장되어 있기 때문에 해당 의존성을 가져올때 Tomcat만 제외해야함
+  - exclude를 사용해서 tomcat만 제외하고 가져오도록 설정
+
+TomcatWebServerConfig와 JettyWebServerConfig를 살펴보면, Tomcat과 Server 클래스를 판단하는 경로를 작성해주는 부분이외에는 모두 동일함  
+위 테스트 코드에서 @BooleanConditional을 생성했던 것처럼 @Conditional을 메타 어노테이션으로 가지는 새로운 어노테이션 생성
+```java
+// ConditionalMyOnClass.java
+@Retention(RetentionPolicy.RUNTIME)
+@Target({ElementType.TYPE, ElementType.METHOD})
+@Conditional(MyOnClassCondition.class)
+public @interface ConditionalMyOnClass {
+    String value();
+}
+
+// MyOnClassCondition.java
+public class MyOnClassCondition implements Condition {
+    @Override
+    public boolean matches(ConditionContext context,
+                           AnnotatedTypeMetadata metadata) {
+        Map<String, Object> attrs = metadata.getAnnotationAttributes(ConditionalMyOnClass.class.getName());
+        String value = (String) attrs.get("value");
+        return ClassUtils.isPresent(value, context.getClassLoader());
+    }
+}
+```
+- 어노테이션에서는 String value()로 클래스가 존재하는지 체크할 클래스의 이름을 전달받을 변수 선언
+- 조건을 검사할 MyOnClassCondition도 추가 생성
+  - 메타데이터에서 어노테이션의 Attribute를 가져와서 클래스의 이름 가져옴
+
+위에서 생성한 어노테이션을 활용해서 TomcatWebServerConfig와 JettyWebServerConfig를 수정
+```java
+// TomcatWebServerConfig.java
+@MyAutoConfiguration
+@ConditionalMyOnClass("org.apache.catalina.startup.Tomcat")
+public class TomcatWebServerConfig {
+    // ...
+}
+
+// JettyWebServerConfig.java
+@MyAutoConfiguration
+@ConditionalMyOnClass("org.eclipse.jetty.server.Server")
+public class JettyWebServerConfig {
+    // ...
+}
+```
+- 각 Config 클래스에 inner class로 선언되어 있던 TomcatCondition과 JettyCondition은 이제 필요없으니 제거
+
 ## 자동 구성 정보 대체하기
 
 ## 스프링 부트의 @Conditional
