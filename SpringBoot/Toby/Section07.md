@@ -424,4 +424,71 @@ public class JettyWebServerConfig {
 
 ## 자동 구성 정보 대체하기
 
+사용자 구성 정보에다가 자동 구성 정보에 등록되는 것과 같은 기술과 관련된 인프라스트럭쳐 빈을 직접 정의할 수 있음
+
+새로운 Servlet container를 ServletWebServerFactoryBean으로 등록을 시켜서 동작하도록 만들고 싶음  
+새로 만드는 것은 아니고, Tomcat 서버를 우리가 작성한 코드에 의해서 띄우도록 개발
+
+WebServerConfiguration 클래스를 새로 생성
+```java
+@Configuration(proxyBeanMethods = false)
+public class WebServerConfiguration {
+    @Bean
+    ServletWebServerFactory customWebServerFactory() {
+        TomcatServletWebServerFactory serverFactory = new TomcatServletWebServerFactory();
+        serverFactory.setPort(9090);
+        return serverFactory;
+    }
+}
+```
+- Bean 사이의 상호 메소드 호출을 통해 의존관계 주입을 넣을게 아니므로 proxyBeanMethods를 false로 설정
+- Tomcat을 그냥 띄우면 이전과 차이가 없으므로 포트를 변경해서 띄우기 위해 9090 포트로 변경
+
+이전에 추가했던 TomcatWebServerFactory가 남아있으므로 이 상태에서 서버를 실행시키면 에러가 발생함
+```shell
+org.springframework.context.ApplicationContextException: Unable to start web server
+...
+Caused by: org.springframework.context.ApplicationContextException: Unable to start ServletWebServerApplicationContext due to multiple ServletWebServerFactory beans : customWebServerFactory,jettyWebServerFactory
+...
+```
+
+기존의 TomcatWebServerFactory를 수정
+```java
+// TomcatWebServerConfig.java
+@MyAutoConfiguration
+@ConditionalMyOnClass("org.apache.catalina.startup.Tomcat")
+public class TomcatWebServerConfig {
+    @Bean("tomcatWebServerFactory")
+    @ConditionalOnMissingBean
+    public ServletWebServerFactory servletWebServerFactory() {
+        return new TomcatServletWebServerFactory();
+    }
+}
+
+// JettyWebServerConfig.java
+@MyAutoConfiguration
+@ConditionalMyOnClass("org.eclipse.jetty.server.Server")
+public class JettyWebServerConfig {
+    @Bean("jettyWebServerFactory")
+    @ConditionalOnMissingBean
+    public ServletWebServerFactory servletWebServerFactory() {
+        return new JettyServletWebServerFactory();
+    }
+}
+```
+- factory bean method에 @Conditional을 추가하여 같은 타입의 Bean이 없을때만 해당 Bean을 등록하도록 수정
+  - 유저가 직접 만든 Configuration Bean이 우선이라는 의미
+  - 직접 구현하기엔 복잡하므로 SpringBoot에 이미 구현된 @ConditionalOnMissingBean을 선언
+- JettyWebServerFactory도 동일하게 수정
+
+이제 다시 서버를 실행해보면 Tomcat 서버가 9090 포트로 실행된 것을 확인할 수 있음
+```shell
+2024-07-22T18:45:09.480+09:00  INFO 26528 --- [toby] [           main] o.s.b.w.embedded.tomcat.TomcatWebServer  : Tomcat started on port 9090 (http) with context path '/'
+2024-07-22T18:45:09.482+09:00  INFO 26528 --- [toby] [           main] c.s.t.s.helloboot.TobyApplication        : Started TobyApplication in 0.355 seconds (process running for 0.574)
+```
+
+개발을 하다보면 특정 Bean에 대해서 Configuration 클래스를 추가할 수 있음  
+하지만, 아무렇게나 추가하다보면 Configuration 혹은 Bean이 충돌이 발생해서 서버가 동작하지 않게될 수 있음  
+그래서 해당 타입의 Bean이 이미 존재하면, 이후 Bean은 등록하지 않는 @ConditionalOnMissingBean과 같은 어노테이션이 유용함
+
 ## 스프링 부트의 @Conditional
