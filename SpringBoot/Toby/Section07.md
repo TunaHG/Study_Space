@@ -492,3 +492,43 @@ public class JettyWebServerConfig {
 그래서 해당 타입의 Bean이 이미 존재하면, 이후 Bean은 등록하지 않는 @ConditionalOnMissingBean과 같은 어노테이션이 유용함
 
 ## 스프링 부트의 @Conditional
+
+지금까지 사용한 @Conditional 관련 어노테이션 이외에 또 어떤 @Conditional 어노테이션이 존재하는지 확인
+
+@Conditional은 Spring 프레임워크에 존재하며 4.0부터 있었음  
+@Profile도 @Conditional임
+```java
+@Conditional(ProfileCondition.class)
+public @interface Profile {
+}
+```
+
+Spring Boot가 제공하는 것중 @Conditional을 이용해서 클래스를 등록할지 말지에 대해 2개를 살펴봄  
+@ConditionalOnClass, @ConditionalOnMissingClass  
+지정한 클래스의 프로젝트 내 존재를 확인해서 포함 여부를 결정함  
+주로 @Configuration 클래스 레벨에서 사용하지만 @Bean메소드에도 적용이 가능함  
+단, 클래스 레벨의 검증 없이 @Bean 메소드에만 적용하면 불필요하게 @Configuration 클래스가 Bean으로 등록되므로 클래스 레벨 사용을 우선해야 함
+
+클래스가 아닌 Bean을 조건으로 다는 @Conditional도 존재함  
+@ConditionalOnBean, @ConditionalOnMissingBean  
+Bean의 존재 여부를 기준으로 포함 여부를 결정함. 지정된 Bean 정보가 없으면 메소드의 리턴 타입을 기준으로 존재여부를 체크  
+컨테이너에 등록된 Bean 정보를 기준으로 체크하기 때문에 자동 구성 사이에 적용하려면 @Configuration 클래스의 적용 순서가 중요  
+개발자가 직접 정의한 커스텀 Bean 정보는 자동 구성 정보 처리보다 우선하기 때문에 이 관계에 적용하는 것은 안전  
+그래서 직접 만드는 커스텀 Bean에서는 @ConditionalOnMissingBean은 사용하지 않는 것이 안전
+
+대표적으로 사용되는 방식은 @Configuration 클래스 레벨의 @ConditionalOnClass와 @Bean 메소드 레벨의 @ConditionalOnMissingBean
+
+@ConditionalOnProperty는 Spring의 환경 프로퍼티 정보를 이용  
+지정된 프로퍼티가 존재하고 값이 false가 아니면 포함 대상이 됨
+
+@ConditionalOnResource는 지정된 리소스(파일)의 존재를 확인하는 조건
+
+@ConditionalOnWebApplication, @ConditionalOnNotWebApplication  
+웹 애플리케이션 여부를 확인, 모든 Spring Boot 프로젝트가 웹 기술을 사용해야 하는 것은 아님
+
+@ConditionalOnExpression은 Spring SpEL(Spring 표현식)의 처리 결과를 기준으로 판단하는 조건  
+아주 상세한 조건 설정이 가능, 다만 구성 정보 설정 레벨에서는 많이 사용하지 않음
+
+Spring Boot가 제공하는 자동 구성을 우리가 알아야 할 때가 있음  
+그럴 때, 이게 어떤 종류의 조건을 만족하면 Bean이 등록이 되는지를 알고 있어야 Bean을 사용하거나 대체하거나 등등의 액션이 가능  
+혹은 Spring Boot를 지원하지 않는 기술이나 독자적인 기술을 개발할 때 자동 구성 형태로 만들어 놓으려면 활용
