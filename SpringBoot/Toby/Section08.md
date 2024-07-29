@@ -190,6 +190,211 @@ contextPath=/toby
 
 ## @Value와 PropertySourcesPlaceholderConfigurer
 
+Environment에서 프로퍼티를 직접 읽어오는 방법도 있지만 Spring에서는 변수에 프로퍼티값을 주입해주는 방법이 있음
+
+```java
+@MyAutoConfiguration
+@ConditionalMyOnClass("org.apache.catalina.startup.Tomcat")
+public class TomcatWebServerConfig {
+    
+    @Value("${contextPath}")
+    String contextPath;
+    
+    @Bean("tomcatWebServerFactory")
+    @ConditionalOnMissingBean
+    public ServletWebServerFactory servletWebServerFactory() {
+        TomcatServletWebServerFactory factory = new TomcatServletWebServerFactory();
+
+        // 확인용
+        System.out.println("contextPath: " + this.contextPath);
+        
+        factory.setContextPath(this.contextPath);
+        return factory;
+    }
+}
+```
+- `@Value` 파라미터로는 치환자(placeholder)를 넣음
+
+해당 필드가 선언된 Class의 Bean이 생성되며 프로퍼티가 주입됨
+
+이대로 실행해보면 에러가 발생함  
+그래서 어떤 값이 전달되고 있는지를 확인해보기 위해 찍어보면 `@Value`에 치환자로 넣은 값이 그대로 출력중
+```shell
+2024-07-29T20:12:58.549+09:00  INFO 88268 --- [toby] [           main] c.s.t.s.helloboot.TobyApplication        : ...
+contextPath: ${contextPath}
+2024-07-29T20:12:58.804+09:00  WARN 88268 --- [toby] [           main] ConfigServletWebServerApplicationContext : ...
+```
+
+`@Value`에 붙은 치환자를 교체해주는 것은 스프링 컨테이너의 기본 동작 방식은 아님  
+프로퍼티로 교체해주는 후처리 작업을 하는 기능을 스프링 컨테이너에 추가해야 함  
+AutoConfig로 동작하게 진행하기위해 새로운 클래스 하나 생성
+
+```java
+@MyAutoConfiguration
+public class PropertyPlaceholderConfig {
+    @Bean
+    PropertySourcesPlaceholderConfigurer propertySourcesPlaceholderConfigurer() {
+        return new PropertySourcesPlaceholderConfigurer();
+    }
+}
+```
+- PropertySourcesPlaceholderConfigurer는 소스코드를 타고 들어가보면 BeanFactoryPostProcessor를 구현한 구현체임
+
+AutoConfig 클래스를 새로 만들었으면, .imports 파일에 추가적으로 명시해줘야 함
+```imports
+com.study.toby.section08.config.autoconfig.PropertyPlaceholderConfig
+com.study.toby.section08.config.autoconfig.DispatcherServletConfig
+com.study.toby.section08.config.autoconfig.TomcatWebServerConfig
+com.study.toby.section08.config.autoconfig.JettyWebServerConfig
+```
+
+이후 다시 실행해보면 아까 찍어놓은 print 문으로 정상적으로 프로퍼티 값을 가져온 것을 확인할 수 있음
+```shell
+2024-07-29T20:15:09.154+09:00  INFO 88377 --- [toby] [           main] o.s.c.a.ConfigurationClassEnhancer       : ...
+contextPath: /toby
+2024-07-29T20:15:09.219+09:00  INFO 88377 --- [toby] [           main] o.s.b.w.embedded.tomcat.TomcatWebServer  : Tomcat initialized with port 8080 (http)
+```
+
 ## 프로퍼티 클래스의 분리
+
+실제로는 Tomcat web server를 위해 설정할 프로퍼티가 정말 많음  
+그리고 다른 클래스에서 동일한 프로퍼티를 사용해야하면 중복된 변수를 선언해줘야함  
+그래서 프로퍼티 클래스로 따로 분리할 수 있음
+
+분리하기 전에 Tomcat 에서 사용할 만한 port를 추가적으로 지정해봄
+```java
+@MyAutoConfiguration
+@ConditionalMyOnClass("org.apache.catalina.startup.Tomcat")
+public class TomcatWebServerConfig {
+
+    @Value("${contextPath}")
+    String contextPath;
+    
+    @Value("${port}")
+    int port;
+
+    @Bean("tomcatWebServerFactory")
+    @ConditionalOnMissingBean
+    public ServletWebServerFactory servletWebServerFactory() {
+        TomcatServletWebServerFactory factory = new TomcatServletWebServerFactory();
+        factory.setContextPath(this.contextPath);
+        factory.setPort(this.port);
+        return factory;
+    }
+}
+```
+
+위와 같이 설정 후 실행하면 에러가 발생함  
+왜 발생하는지를 살펴보면 port 프로퍼티를 `@Value`를 통해 가져오려고 했으나, port로 선언된 프로퍼티가 존재하지 않아서 에러가 발생
+하지만 매번 모든 프로퍼티를 지정할 수는 없으니 대신 default 값을 지정해 줄 수 있음
+```java
+@Value("${port:9090}")
+    int port;
+```
+- placeholder에 `:`로 추가적으로 명시하면 default 값을 명시할 수 있음
+
+이제 프로퍼티 클래스를 생성해봄
+```java
+public class ServerProperties {
+    private String contextPath;
+
+    private int port;
+
+    public String getContextPath() {
+        return contextPath;
+    }
+
+    public void setContextPath(String contextPath) {
+        this.contextPath = contextPath;
+    }
+
+    public int getPort() {
+        return port;
+    }
+
+    public void setPort(int port) {
+        this.port = port;
+    }
+}
+```
+
+프로퍼티 클래스를 Bean으로 만들기 때문에, 해당 클래스를 파라미터로 주입받아서 사용할 수 있음  
+TomcatWebServerConfig에서 파라미터로 받아와서 사용
+```java
+@MyAutoConfiguration
+@ConditionalMyOnClass("org.apache.catalina.startup.Tomcat")
+public class TomcatWebServerConfig {
+    @Bean("tomcatWebServerFactory")
+    @ConditionalOnMissingBean
+    public ServletWebServerFactory servletWebServerFactory(ServerProperties properties) {
+        TomcatServletWebServerFactory factory = new TomcatServletWebServerFactory();
+
+        factory.setContextPath(properties.getContextPath());
+        factory.setPort(properties.getPort());
+
+        return factory;
+    }
+
+    @Bean
+    public ServerProperties serverProperties(Environment environment) {
+        ServerProperties serverProperties = new ServerProperties();
+
+        serverProperties.setContextPath(environment.getProperty("contextPath"));
+        serverProperties.setPort(Integer.parseInt(environment.getProperty("port")));
+
+        return serverProperties;
+    }
+}
+```
+- 현재는 프로퍼티 클래스의 Bean 팩토리 메소드에서 오브젝트를 생성할 때 Environment에서 가져옴
+
+하지만 프로퍼티 클래스는 Tomcat에서만 사용되는 것이 아니므로, 자동 구성에 사용할 Config 클래스를 하나 더 생성
+```java
+// ServerPropertiesConfig.java
+@MyAutoConfiguration
+public class ServerPropertiesConfig {
+    @Bean
+    public ServerProperties serverProperties(Environment environment) {
+        ServerProperties serverProperties = new ServerProperties();
+
+        serverProperties.setContextPath(environment.getProperty("contextPath"));
+        serverProperties.setPort(Integer.parseInt(environment.getProperty("port")));
+
+        return serverProperties;
+    }
+}
+```
+
+Auto Config 클래스를 하나 더 추가했으므로, .imports 파일에도 추가해줘야 함
+```imports
+com.study.toby.section08.config.autoconfig.ServerPropertiesConfig
+com.study.toby.section08.config.autoconfig.PropertyPlaceholderConfig
+com.study.toby.section08.config.autoconfig.DispatcherServletConfig
+com.study.toby.section08.config.autoconfig.TomcatWebServerConfig
+com.study.toby.section08.config.autoconfig.JettyWebServerConfig
+```
+
+이대로 실행하면 에러가 발생함. 아까는 port의 default 값을 정해줬지만, 이번에는 정해주지 않았기 때문  
+그래서 application.properties에 접근해서 port값을 명시해줌
+```properties
+contextPath=/toby
+port=9090
+```
+
+앞으로 진행할 강의에서도 9090 port를 계속 사용할 예정이므로 테스트 코드도 모두 9090 port로 테스트하도록 수정
+
+기존 ServerPropertiesConfig 코드를 살펴보면 Environment를 주입받아서 값을 일일이 추가했음  
+이걸 더 편하게 하기 위해 Spring Boot가 제공하는 Binder를 사용
+```java
+@MyAutoConfiguration
+public class ServerPropertiesConfig {
+    @Bean
+    public ServerProperties serverProperties(Environment environment) {
+        return Binder.get(environment).bind("", ServerProperties.class).get();
+    }
+}
+```
+- 일일이 값을 꺼내오는 로직을 작성하지 않고 getter/setter로 되어있는 프로퍼티 이름과 일치하는 것을 찾아 자동으로 Binding해줌
+
 
 ## 프로퍼티 빈의 후처리기 도입
