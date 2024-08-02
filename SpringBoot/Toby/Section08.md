@@ -396,5 +396,161 @@ public class ServerPropertiesConfig {
 ```
 - 일일이 값을 꺼내오는 로직을 작성하지 않고 getter/setter로 되어있는 프로퍼티 이름과 일치하는 것을 찾아 자동으로 Binding해줌
 
-
 ## 프로퍼티 빈의 후처리기 도입
+
+사용하는 기술이 많아지면 Properties Class의 개수가 늘어남  
+그리고 위 PropertiesConfig는 Tomcat이나 Jetty같은 서블릿 컨테이너를 띄울때만 필요해서 `@Conditional`도 달아야함  
+그래서 더 간결하고 편리한 방법으로 진행해봄  
+기존 ServerPropertiesConfig 관련은 삭제 (Class, .imports 등)
+
+쉬운 방법으로는 `@Import`를 다는 것
+```java
+@Component
+public class ServerProperties {
+   // ...
+}
+
+@MyAutoConfiguration
+@ConditionalMyOnClass("org.apache.catalina.startup.Tomcat")
+@Import(ServerProperties.class)
+public class TomcatWebServerConfig {
+   // ...
+}
+```
+- ServerProperties를 Bean으로 만들어줘야 하므로 `@Component` 선언
+- 이후 TomcatServerConfig에 `@Import`로 가져올 수 있음
+
+하지만 `@Import`까지만하고 다시 실행하면 에러가 발생함
+```shell
+Caused by: java.lang.IllegalArgumentException: ContextPath must not be null
+```
+
+위 코드만 진행한 이후 에러가 발생하는 이유는 ServerProperties를 Bean으로 선언하기만하고 값을 바인딩해주지 않아서.  
+바인딩 해주는 방법은 Bean 포스트 프로세서라는 Bean 후처리기를 사용하는 것
+```java
+// ServerProperties.java
+@MyConfigurationProperties
+public class ServerProperties {
+   // ...
+}
+
+// MyConfigurationProperties.java
+@Retention(RetentionPolicy.RUNTIME)
+@Target(ElementType.TYPE)
+@Component
+public @interface MyConfigurationProperties {
+}
+
+// PropertyPostProcessorConfig.java
+@MyAutoConfiguration
+public class PropertyPostProcessorConfig {
+    @Bean
+    BeanPostProcessor propertyPostProcessor(Environment env) {
+        return new BeanPostProcessor() {
+            @Override
+            public Object postProcessAfterInitialization(Object bean,
+                                                         String beanName) throws BeansException {
+                MyConfigurationProperties annotation = findAnnotation(bean.getClass(), MyConfigurationProperties.class);
+                if (annotation == null) return bean;
+
+                return Binder.get(env).bindOrCreate("", bean.getClass());
+            }
+        };
+    }
+}
+```
+- ServerProperties에 `@MyConfigurationProperties`라는 어노테이션을 선언하고 해당 어노테이션을 새로 생성
+  - 기존에 ServerProperties에 선언했던 `@Component`는 `@MyConfigurationProperties`에 추가하여 메타 어노테이션으로 활용
+- Bean 포스트 프로세서
+  - 스프링에 Bean을 만든 다음 가공할 수 있는 기회를 제공함
+- BeanPostProcessor Bean을 생성 할 autoconfig Class 생성
+  - p`ostProcessAfterInitialization()`을 오버라이딩 - 모든 Bean이 생성 후 해당 로직을 처리함
+  - `AnnotationUtils.findAnnotation()`을 활용하여 MyConfigurationProperties 어노테이션 정보를 가져옴
+  - 이후 어노테이션을 가져왔다면 Binder를 사용하여 바인딩하도록 추가
+    - 바인딩에 필요한 Environment는 Bean 팩토리 메소드에서 주입받아서 사용
+    - 이전에 사용한 `bind()`와 다르게 `bindOrCreate()`를 사용하여 바인딩을 시도했는데 없다면, 해당 클래스의 오브젝트를 만들어서 리턴하도록 구현
+
+위와 같은 방식을 사용하면 새로운 프로퍼티가 추가된다고 하더라도 프로퍼티 Bean을 만드는 코드를 일일이 만들 필요가 없음  
+`@Conditional` 조건이 걸린 Class에 `@Import`로 선언해두면 됨
+
+여러 프로퍼티를 생성하다보면 중복되는 프로퍼티 이름이 생길 수 있다보니 prefix를 추가해줘야 함  
+이번에는 프로퍼티에 Prefix를 붙이는 작업을 진행해봄
+```java
+// MyConfigurationProperties.java
+@Retention(RetentionPolicy.RUNTIME)
+@Target(ElementType.TYPE)
+@Component
+public @interface MyConfigurationProperties {
+    String prefix();
+}
+
+// application.properties
+server.contextPath=/toby
+server.port=9090
+
+// PropertyPostProcessorConfig.java
+@MyAutoConfiguration
+public class PropertyPostProcessorConfig {
+    @Bean
+    BeanPostProcessor propertyPostProcessor(Environment env) {
+        return new BeanPostProcessor() {
+            @Override
+            public Object postProcessAfterInitialization(Object bean,
+                                                         String beanName) throws BeansException {
+                MyConfigurationProperties annotation = findAnnotation(bean.getClass(), MyConfigurationProperties.class);
+                if (annotation == null) return bean;
+
+                Map<String, Object> attributes = getAnnotationAttributes(annotation);
+                String prefix = (String) attributes.get("prefix");
+
+                return Binder.get(env).bindOrCreate(prefix, bean.getClass());
+            }
+        };
+    }
+}
+
+// ServerProperties.java
+@MyConfigurationProperties(prefix = "server")
+public class ServerProperties {
+   // ...
+}
+```
+- `@MyConfigurationProperties`에 prefix를 받을 변수 추가
+- 어노테이션에 선언해둔 변수는 `getAnnotationAttributes()`를 사용하여 가져옴
+- prefix는 `bindOrCreate()`의 첫번째 파라미터로 전달해주면 됨
+
+@Import는 무슨 목적으로 import 했는지 고민하게 만드는데, Spring Boot의 스타일은 Enable이라는 어노테이션을 이용하는 것  
+```java
+// TomcatWebServerConfig.java
+@MyAutoConfiguration
+@ConditionalMyOnClass("org.apache.catalina.startup.Tomcat")
+@EnableMyConfigurationProperties(ServerProperties.class)
+public class TomcatWebServerConfig {
+   // ...
+}
+
+// EnableMyConfigurationProperties.java
+@Retention(RetentionPolicy.RUNTIME)
+@Target(ElementType.TYPE)
+@Import(MyConfigurationPropertiesImportSelector.class)
+public @interface EnableMyConfigurationProperties {
+    Class<?> value();
+}
+
+// MyConfigurationPropertiesImportSelector.java
+public class MyConfigurationPropertiesImportSelector implements DeferredImportSelector {
+    @Override
+    public String[] selectImports(AnnotationMetadata importingClassMetadata) {
+        MultiValueMap<String, Object> attrs = 
+            importingClassMetadata.getAllAnnotationAttributes(EnableMyConfigurationProperties.class.getName());
+        Class propertyClass = (Class) attrs.getFirst("value");
+        return new String[]{ propertyClass.getName() };
+    }
+}
+```
+- `@Import`를 `@EanbleMyConfigurationProperties`로 수정하고 해당 어노테이션을 새로 생성
+- Enable로 시작하는 어노테이션의 활용 용도는 `@Import`를 메타 어노테이션으로 선언해서 어떤 기능을 가진 Config class나 Import selector를 가져오는 것
+  - 그래서 MyConfigurationPropertiesImportSelector 클래스를 선언하고 새로 생성해줌
+    - DeferredImportSelector 인터페이스를 구현 (실제 import할 클래스의 이름을 리턴해주는 역할)
+    - import할 클래스의 이름 배열은 `@EnableMyConfigurationProperties`의 value 변수에서 가져옴 (`getAllAnnotationAttributes()`)
+      - 여기서는 하나만 사용할 것이니까 배열이 아니라 Class만 받도록 수정
