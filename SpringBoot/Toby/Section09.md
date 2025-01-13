@@ -229,6 +229,136 @@ public class DataSourceConfig {
 
 ## JdbcTemplate과 트랜잭션 매니저 구성
 
+JdbcTemplate은 SQL을 이용하는 자바 코드를 작성할때 필요한 여러가지 번거로운 코드 구성을 간결하게 사용할 수 있도록 만들어주는 Template class
+JdbcTransactionManager는 Jdbc를 활용하는 코드의 트랜잭션을 시작하고 종료하고 정의하는 등 트랜잭션 관리와 관련된 모든 복잡한 작업들을 트랜잭션 추상화를 이용해서 편리하게 해주는 Bean
+하나 더해서 Bean을 정의하진 않지만 선언적인 방법으로 트랜잭션을 정의할 때 필요한 AOP와 관련된 복잡한 기능들을 자동으로 등록해주는 import 기능을 가진 Enable Annotation을 추가할 예정
+
+```java
+@MyAutoConfiguration
+@ConditionalMyOnClass("org.springframework.jdbc.core.JdbcOperations")
+@EnableMyConfigurationProperties(MyDataSourceProperties.class)
+@EnableTransactionManagement // 새로 추가
+public class DataSourceConfig {
+    // ...
+    
+    @Bean
+    @ConditionalOnSingleCandidate(DataSource.class)
+    @ConditionalOnMissingBean
+    JdbcTemplate jdbcTemplate(DataSource dataSource) {
+        return new JdbcTemplate(dataSource);
+    }
+
+    @Bean
+    @ConditionalOnSingleCandidate(DataSource.class)
+    @ConditionalOnMissingBean
+    JdbcTransactionManager jdbcTransactionManager(DataSource dataSource) {
+        return new JdbcTransactionManager(dataSource);
+    }
+}
+```
+- JdbcTemplate Bean 생성
+  - 파라미터로 DataSource를 받기때문에 전달
+  - Custom으로 등록할 것을 고려해서 @ConditionalOnMissingBean 추가
+  - @ConditionalOnSingleCandidate(DataSource.class) 추가
+    - Bean 팩토리 메소드가 실행될 때 스프링 컨테이너의 Bean 구성 정보에 DataSource 타입의 Bean이 한 개만 등록되어 있다면 그걸 가져와서 사용하겠다는 의미
+- JdbcTransactionManager Bean 생성
+  - 동일하게 파라미터로 DataSource를 받기때문에 전달
+  - 직접 액세스해서 트랜잭션을 관리할 수 있지만, 대체로 @Transactional을 이용해서 선언적인 방식으로 설정
+    - 직접 사용하게 된다면, PlatformTrasnactionManager 인터페이스로 주입받아서 사용
+- AOP와 관련된 기능을 넣기 위해서 Config class에 @EnableTransactionManagement 추가
+  - 아래 정의한 JdbcTransactionManager와 함께 @Transactional을 사용할 수 있게 만들어줌
+
+JdbcTemplate 테스트 코드를 작성하기 전에 DataSourceTest를 먼저 살펴봄  
+테스트에서 DB를 조작하는 코드를 돌렸을 때,  
+테스트가 끝나고 나서 각각의 테스트가 독립적으로 서로의 테스트에게 영향을 주지 않게 하려면 테스트 도중 DB 조작한 것을 원래대로 복구해야 함  
+가장 좋은 방법이 테스트 전체에 트랜잭션을 걸고 테스트가 끝나면 롤백을 진행하는 방법 (@Transactional)  
+DataSourceTest를 보면 여러 어노테이션이 달려있고, @Transactional을 추가적으로 선언해야 하는데 선언할 어노테이션이 많으니 별도의 합성 어노테이션 생성
+```java
+// HelloBootTest.java
+@Retention(RetentionPolicy.RUNTIME)
+@Target(ElementType.TYPE)
+@ExtendWith(SpringExtension.class)
+@ContextConfiguration(classes = TobyApplication.class)
+@TestPropertySource("classpath:/application.properties")
+@Transactional
+public @interface HelloBootTest {
+}
+
+// DataSourceTest.java
+@HelloBootTest
+public class DataSourceTest {
+  // ...
+}
+```
+
+JdbcTemplate 테스트 코드를 작성
+```java
+@HelloBootTest
+public class JdbcTemplateTest {
+    @Autowired
+    JdbcTemplate jdbcTemplate;
+
+    @BeforeEach
+    void init() {
+        jdbcTemplate.execute("CREATE TABLE IF NOT EXISTS member(name varchar(50) PRIMARY KEY, count int)");
+    }
+
+    @Test
+    void insertAndQuery() {
+        jdbcTemplate.update("INSERT INTO member(name, count) VALUES(?, ?)", "Toby", 3);
+        jdbcTemplate.update("INSERT INTO member(name, count) VALUES(?, ?)", "Spring", 1);
+
+        Long count = jdbcTemplate.queryForObject("SELECT COUNT(*) FROM member", Long.class);
+        assertThat(count).isEqualTo(2);
+    }
+}
+```
+- 앞서 새로 생성한 합성 어노테이션 선언
+- 테스트 이전에 @BeforeEach를 통해 DB를 초기화해주는 작업 진행
+  - 인메모리 DB를 사용하다보니 테스트를 시작할 때 테이블이 없는 빈 상태로 시작되기 때문에, DB 테이블 혹은 데이터를 초기화해주는 작업이 필요
+  - JdbcTemplate.execute()메소드를 통해 SQL 쿼리를 실행
+- 데이터를 넣고 조회해보는 테스트 진행
+  - JdbcTemplate.update()를 통해 SQL INSERT 쿼리 실행
+  - JdbcTemplate.queryForObject()를 통해 SQL SELECT 쿼리 실행
+
+@HelloBootTest에 선언된 @Transactional 때문에,  
+테스트가 실행되고 나서 트랜잭션이 롤백되어 INSERT 쿼리를 통해 생성한 데이터들이 롤백되서 사라짐  
+해당 데이터들이 사라졌는지 테스트해봄
+```java
+@HelloBootTest
+@Rollback(false) // 추가했다가 제거했다가 하면서 테스트
+public class JdbcTemplateTest {
+    @Autowired
+    JdbcTemplate jdbcTemplate;
+
+    @BeforeEach
+    void init() {
+        jdbcTemplate.execute("CREATE TABLE IF NOT EXISTS member(name varchar(50) PRIMARY KEY, count int)");
+    }
+
+    @Test
+    void insertAndQuery() {
+        jdbcTemplate.update("INSERT INTO member(name, count) VALUES(?, ?)", "Toby", 3);
+        jdbcTemplate.update("INSERT INTO member(name, count) VALUES(?, ?)", "Spring", 1);
+
+        Long count = jdbcTemplate.queryForObject("SELECT COUNT(*) FROM member", Long.class);
+        assertThat(count).isEqualTo(2);
+    }
+
+    @Test
+    void insertAndQuery2() {
+        jdbcTemplate.update("INSERT INTO member(name, count) VALUES(?, ?)", "Toby", 3);
+        jdbcTemplate.update("INSERT INTO member(name, count) VALUES(?, ?)", "Spring", 1);
+
+        Long count = jdbcTemplate.queryForObject("SELECT COUNT(*) FROM member", Long.class);
+        assertThat(count).isEqualTo(2);
+    }
+}
+```
+- 두 테스트 코드가 동일한데, 트랜잭션이 롤백되지 않아서 데이터들이 사라지지 않았다면 두 번째 테스트에서 SQL INSERT 쿼리가 실패해야 함
+- @Rollback(false)를 선언하면 트랜잭션이 롤백되지 않아서 에러가 발생함
+  - 발생하는 에러는 primary key로 선언한 name이 중복되서 INSERT 쿼리에서 발생하는 에러
+
 ## Hello 레포지토리
 
 ## 레포지토리를 사용하는 HelloService
