@@ -200,6 +200,60 @@ SpringBoot가 내장하고 있는 자동 구성에 의해 알아서 동작하는
 
 ## 자동 구성 분석 방법
 
+SpringBoot가 제공하는 자동 구성이 어떤 게 적용되고 있는지, 어떻게 이용할 수 있는지 확인
+
+**자동구성 클래스 Conditional 결과 로그**  
+서버 실행시 자동구성과 관련된 정보들을 로그로 출력해서 확인 가능
+- `-Ddebug`: JVM의 argument로 디버그 로깅을 설정하는 방법
+- `--deubg`: 프로그램 전체에 대한 argument로 디버그 로깅을 설정하는 방법
+
+SpringBoot가 imports 파일로부터 읽어온 자동 구성 후보들 중에서 Conditional Test를 수행  
+Conditional 체크 후 통과해서 구동시 필요한 Bean을 등록  
+선택되지 않은 것들도 이유가 출력됨. (클래스가 없거나 프로퍼티 설정이 없거나 등)  
+다만, 너무 많은 내용이 출력되다보니 확인하기 힘들 수 있음 (자동 구성 클래스의 후보가 144가지인데 중첩된 클래스도 있고 그 안에 Bean 메소드에 조건이 또 있다보니)
+
+**자동구성 클래스 Conditional 결과 Bean**  
+- `ConditionEvaluationReport`: 자동으로 등록되는 Bean, Condition 체크 후의 결과를 정보로 담고 있는 Bean을 제공
+
+**등록된 Bean 확인**  
+- `ListableBeanFactory`: ApplicationContext안에 들어있는, SpringContainer 안에 생성된 Bean의 목록을 확인할 수 있게 해주는 메소드를 제공하는 인터페이스
+
+**문서에서 관련 기술, 자동구성, 프로퍼티 확인**  
+- `SpringBoot Reference`
+
+AutoConfiguration 앞을 보면 주제가 나옴. 해당 주제를 가지고 문서를 확인  
+소스코드 내에서 클래스나 인터페이스 위에 작성된 JavaDoc을 확인하면 정말 많은 정보가 작성되어 있음
+
+**자동 구성 클래스와 조건, Bean 확인**  
+- @AutoConfiguration
+- @Conditional
+- Condition
+- @Bean
+
+앞선 ConditionEvaluationReport에서 매칭되었다고 나온 정보를 찾으면 AutoConfiguration이 붙어있음  
+어떤 조건을 만족해서 매칭이 되서 Bean이 됬는지 확인, 더 궁금하면 Condition도 확인  
+어떤 타입의 Bean들이 생성되는지 확인
+
+**프로퍼티 클래스와 바인딩**  
+- Properties
+- Bind
+- Customizer
+- Configurer
+
+프로퍼티를 작성할 때는 그냥 텍스트로 작성하지만, 실제로는 어떤 타입으로 변경이 되는구나를 확인 가능  
+또 중첩이 되어 있는 경우가 있어서, 중첩된 오브젝트 클래스는 어떤 것들이 설정되는가 확인 가능  
+Binding을 해서 직접 프로퍼티를 가져오는 경우도 있음  
+
+AutoConfiguration 자동구성 클래스를 보면, Customizer, Configurer가 있음  
+Customizer는 어떤 오브젝트의 기본 설정을 변경하는 책임만 담당하는 오브젝트를 만들어서 주입받는 경우도 있음  
+Configurer는 인터페이스 타입으로 Spring F/W와 관련된 주요환 기술을 설정하는 것들을 오브젝트 안에 모아놓음
+
+
+추가적으로  
+기본 구성 정보에서는 선택이 안되는데 특정 라이브러리를 추가하면 다른 옵션으로 바꿀수 있는 것들이 있음  
+예를 들면, SpringBoot에서 기본적으로 데이터 소스는 Hikari를 사용하는데 다른 라이브러리를 선언하고 교체할 수 있음  
+이런 것들은 SpringBoot의 Reference를 확인하면 어떤 것들이 가능한지 작성되어 있음
+
 ## 자동 구성 조건 결과 확인
 
 ## Core 자동 구성 살펴보기
