@@ -172,6 +172,32 @@ SpringBoot에서 제공하는 기능들을 사용하도록 수정했을 때 테�
 
 ## 스프링 부트 자세히 살펴보기
 
+SpringBoot가 내장하고 있는 자동 구성에 의해 알아서 동작하는 과정
+- SpringBoot에서 사용할 기술을 선택하기
+- Spring Initializr를 사용해서 프로젝트 생성
+- SpringBoot Starter와 Dependencies를 활용한 클래스/라이브러리 추가
+- @AutoConfiguration을 활용한 자동 구성 후보 로딩
+- @Conditional을 활용한 매칭 조건 판별
+- Default 자동 구성 인프라 Bean 준비
+- application.properties를 활용한 외부설정 프로퍼티 설정
+
+위와 같이 진행되서 자동 구성 인프라 Bean들이 최종적으로 생성
+
+직접 작성한 코드가 등록되는 과정
+- @ComponentScan
+- @Component와 같은 애플리케이션 로직 Bean 로딩
+- @Configuration과 같은 커스텀 인프라 Bean 로딩
+- 이외의 추가 인프라 Bean 로딩
+
+위와 같이 진행되서 유저 구성 애플리케이션 Bean이 최종적으로 생성  
+
+정작 개발할 때 필요한 것들은 다음과 같은 것들을 알아야 함
+- 어떤 기술을 사용할 것인가?
+- 해당 기술에 대해 SpringBoot가 제공해주는 자동 구성 Bean은 어떤 것이 있는가?
+- 해당 Bean의 속성은 어떤 것이 있는가? 또 Default 값은 무엇인가?
+- 외부 프로퍼티 설정은 어떤 식으로 가능한가?
+- 어떤 경우에는 해당 자동 구성 Bean이 선택되고 어떻게 조건이 달라지면 다른 종류의 자동 구성 Bean이 사용되는가?
+
 ## 자동 구성 분석 방법
 
 ## 자동 구성 조건 결과 확인
