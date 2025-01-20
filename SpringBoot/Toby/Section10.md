@@ -256,7 +256,78 @@ Configurer는 인터페이스 타입으로 Spring F/W와 관련된 주요환 기
 
 ## 자동 구성 조건 결과 확인
 
+새로운 프로젝트 SpringBootAutoConfiguration을 하나 생성하여 학습  
+아무런 Dependency도 선택하지 않고 생성
+
+프로젝트 생성후 main 메소드를 실행해보면 Spring Container가 뜬 이후에 종료됨  
+Tomcat같은 서버를 연결하지 않았으니 바로 종료되는 것
+
+Run Configuration으로 접근해서 Build and run의 우측 Modifiy options에서 add VM options로 VM 옵션을 지정 가능  
+여기서는 앞서 살펴본 내용중 디버깅 로그를 확인할 수 있는 `-Ddebug` 라고 작성  
+이후 main 메소드 다시 실행해보면 많은 정보들이 출력됨.  
+쭉 위로 올려보면 `CONDITIONS EVALUATION REPORT` 라고 나오는 것을 확인할 수 있음  
+Condition 조건을 통과한 Positive matches를 확인할 수 있음  
+Condition 조건을 통과하지 못해서 매칭되지 못한 Negative matches도 확인할 수 있음
+
+많은 로그들이 나와서 필요한 정보를 찾기 불편함  
+Condition evaluation report가 컨테이너에 Bean으로 등록되기 때문에 거기서 필요한 정보들을 추출하거나 조작해서 살펴볼 수 있음  
+기존에 작성했던 VM option은 제거하고 main 메소드가 있는 Application class를 일부 수정함
+```java
+@SpringBootApplicaiton
+public class SpringBootApplication {
+    @Bean
+    ApplicationRunner run(ConditionEvaluationReport report) {
+        return args -> {
+            System.out.println(
+                report.getConditionAndOutcomesBySource().entrySet().stream()
+                    .filter(co -> co.getValue().isFullMatch())
+                    .filter(co -> co.getKey().indexOf("Jmx") < 0)
+                    .map(co -> {
+                        System.out.println(co.getKey());
+                        co.getValue().forEach(c -> {
+                            System.out.println("\t" + c.getOutcome());
+                        })
+                        System.out.println();
+                        return co;
+                    }).count()
+            );
+        }
+    }
+
+    public static void main(String[] args) {
+        SpringApplication.run(SpringBootApplication.class, args);
+    }
+}
+```
+- ConditionEvaluationReport Bean을 파라미터로 주입받음
+- getConditionAndOutcomesBySource()는 모든 Condition 체크한 기록들이 맵 형태로 반환됨
+- 필터링은 모든 value중에 Bean 메소드가 만드는 Bean을 등록할 것인가 체크하는 조건을 통과한 것만 필터링하는 것
+- getOutcome()은 어떤 Condition을 통과했는지 확인 가능
+- JMX를 제외한 자동구성 Bean이 몇개가 등록되는지 확인해보면 13개가 등록됨
+
 ## Core 자동 구성 살펴보기
+
+가장 먼저 AopAutoConfiguration을 살펴보면,  
+위에 달려있는 Condition이 @ConditionalOnProperty로 확인 가능  
+spring.aop.auto 프로퍼티가 true값이면 매칭되는 조건인데, 선언한 적 없는데도 매칭되었음. 이는 마지막의 matchIfMissting 조건 때문임  
+프로퍼티의 default값을 havingValue로 지정한 것과 동일하게 설정해주는 느낌
+
+이후 캐시와 관련된 자동 구성이 3가지 나옴 (Generic, NoOp, Simple)  
+관련해서는 [Reference](https://docs.spring.io/spring-boot/reference/io/caching.html)를 찾아봄  
+SpringBoot에서 사용하는 방식, 주의할점 등등 자세한 설명이 나와있음
+
+이후 Lifecycle과 관련된 Bean이 등록되어있는데, 직접 다룰 일은 거의 없음  
+Spring이 제공하는 컨테이너 라이프사이클과 관련된 Bean을 만들어주는 자동 구성
+
+이후 PropertyPlaceholder는 앞서 학습한 내용중 하나
+
+core 쪽에서 관심을 가질만한 건 TaskExecution 자동 구성  
+직접 접근해서 살펴보면 ThreadPoolTaskExecutor를 조건으로 잡고 있는데 해당 class는 Spring에 존재  
+그리고 앞서 학습한 @EnableConfigurationProperties 가 선언되어 있음  
+이제 어떤 Bean을 만드는지 확인해보면, Builder Bean이 따로 존재하는 것을 확인할 수 있음  
+Builder Bean에서 주입받은 TaskExecutionProperties를 확인해보면 어떤 프로퍼티로 설정할 수 있는지 확인 가능  
+역시 관련해서도 [Reference](https://docs.spring.io/spring-boot/reference/features/task-execution-and-scheduling.html)를 살펴보면 추가적으로 확인 가능  
+ThreadPoolTaskExectuor를 직접 선언해서 사용하면 corePoolSize가 1로 지정되어 있음
 
 ## Web 자동 구성 살펴보기
 
