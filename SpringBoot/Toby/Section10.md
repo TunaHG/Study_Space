@@ -331,6 +331,58 @@ ThreadPoolTaskExectuor를 직접 선언해서 사용하면 corePoolSize가 1로 
 
 ## Web 자동 구성 살펴보기
 
+Web 모듈을 로딩하려면 의존성으로 spring-boot-starter-web을 넣어주면 됨  
+```groovy
+// build.gradle
+dependencies {
+    implementation 'org.springframework.boot:spring-boot-starter-web'
+}
+```
+- starter-web을 추가하면 기존에 추가되어있던 starter는 web에 포함되어있기 때문에 따로 선언하지 않아도 됨
+  - IDEA의 우측에서 gradle을 확인할 수 있는데 해당 탭에서 Dependencies를 확인가능
+
+다음으로 자동 구성이 어떤게 나오는지 살펴봄  
+앞서 살펴본 내용은 JMX 관련된 항목을 제외하면 13개의 자동 구성 클래스와 Bean들이 조건을 통과하는 걸로 나왔음  
+의존성을 추가한 후 앞서 작성한 run()을 실행해보면 62개가 출력되는 것을 확인할 수 있음
+
+**HttpMessageConvertersAutoConfiguration**  
+- JSON 형태로 인코딩된 RequestBody 파싱 혹은 ResponseBody 생성하는 등의 작업을 담당
+- JSON 뿐만 아니라 여러 메시지 컨버터들이 Spring Web에 포함되어있는데, 그런 것들을 자동 구성 해주는 클래스
+- 3개의 Configuration 파일을 import함
+  - JacksonHttpMessageConvertersConfiguration
+  - GsonHttpMessageConvertersConfiguration
+  - JsonbHttpMessageConvertersConfiguration
+- 기본적으로 메시지 컨버터를 등록해주는 Bean도 선언되어 있음
+
+JSON을 처리하는 Jackson과 관련된 내용이 자동구성 클래스에 많이 포함되어 있음  
+그 중 기억할만한 내용은 Jackson2ObjectMapperConfiguration  
+
+**Jackson2ObjectMapperConfiguration**
+- ObjectMapper를 자주 사용하는데, SpringBoot에서 기본적으로 만들어주는 Bean이 있음
+  - 직접 Bean을 선언하거나 사용하고 싶은 경우 Jackson2ObjectMapperBuilder.class를 참고하면 유용함
+  - CustomizerConfiguration 및 타고 들어가면 보이는 JacksonProperties까지 참고하면 유용함
+
+**RestTemplateAutoConfiguration**
+- RestTemplate Bean을 직접 생성하지 않음. 대신 RestTemplateBuilder Bean을 제공함
+
+**EmbeddedWebServerFactoryCustomizerAutoConfiguration**
+- 이전 실습에서 공부했던 ServerProperties를 확인할 수 있음
+  - Servlet 컨테이너의 기본 동작을 변경할 수 있는 프로퍼티들을 확인할 수 있음
+- ServerProperties를 받아서 바로 톰캣 웹서버를 만드는게 아니라 여기서 또 Customizer를 생성함
+  - Customizer에 ServerProperties를 전달해서 설정한 프로퍼티로 웹서버 설정을 변경함
+
+**ServletWebServerFactoryAutoConfiguration**
+- 여기서 Tomcat, Jetty, UnderTow에 대한 설정들을 확인할 수 있음
+- Customzier를 받아와서 각 서버 설정들을 변경하는 것을 확인할 수 있음
+
+추가적으로 참고하면 좋을 Configuration
+- DispatcherServletAutoConfiguration
+- HttpEncodingAutoConfiguration
+- MultipartAutoConfiguration
+- ErrorMvcAutoConfiguration
+
+
+
 ## Jdbc 자동 구성 살펴보기
 
 ## 정리
