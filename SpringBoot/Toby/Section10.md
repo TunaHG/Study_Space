@@ -381,8 +381,40 @@ JSON을 처리하는 Jackson과 관련된 내용이 자동구성 클래스에 �
 - MultipartAutoConfiguration
 - ErrorMvcAutoConfiguration
 
-
-
 ## Jdbc 자동 구성 살펴보기
 
-## 정리
+Jdbc 모듈을 로딩하려면 의존성으로 spring-boot-starter-jdbc을 넣어주면 됨  
+```groovy
+// build.gradle
+dependencies {
+    implementation 'org.springframework.boot:spring-boot-starter-jdbc'
+}
+```
+- 앞서 살펴본것과 동일하게 gradle 탭에서 어떤 의존성을 로딩하는지 확인해보면 좋음
+
+어떤 자동 구성 클래스가 등록되는지 살펴보기 위해 run()을 실행하면 에러가 발생함  
+`Failed to configure a DataSource: 'url' attribute is not specified and no embedded datasource could be configured`  
+DataSource 정보를 추가해주거나, 임베디드 DB를 사용하는 방식으로 선언해주면 된다는점도 아래에 명시되어있음.
+
+임베디드 DB로 hsql DB를 넣어서 테스트해봄
+```groovy
+// build.gradle
+dependencies {
+    implementation 'org.hsqldb:hsqldb:2.7.1'
+}
+```
+
+이제 다시 run() 실행해보면 자동 구성 클래스가 등록되는 것을 확인할 수 있음  
+32개의 자동 구성 클래스가 등록됨
+
+살펴보면 좋을 클래스들
+- PersistenceExceptionTranslationAutoConfiguration
+- DataSourceAutoConfiguration
+  - DataSourceProperties
+- DataSourceTransactionManagerAutoConfiguration
+  - JdbcTransactionManager
+- JdbcTemplateAutoConfiguration
+  - JdbcProperties
+- DataSourceInitializationConfiguration
+- SqlInitializationAutoConfiguration
+- TransactionAutoConfiguration
